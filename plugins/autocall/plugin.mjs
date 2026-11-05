@@ -233,20 +233,32 @@ function tick(ctx, st) {
     st.warnedWindow = true;
   }
 
-  const roster = ctx.roster;
-  if (!roster || typeof roster.recent !== 'function') {
-    // 没有观众簿（老宿主 / 某些沙盒）时直接静默：挑不到人就不说话，
-    // 绝不能退化成"随便 @ 一个名字"或纯文本 @ —— 那比不说更糟。
-    return;
+  // 优先挑「刚说过话的人」。B站 的结构化 @ 只对当前还在房间的人生效：
+  // 目标已经离开时服务端会把 reply_mid 归零，观众看到的是一条没有 @ 的弹幕。
+  // 观众簿只能证明「来过」，刚发过弹幕才能证明「此刻还在」。
+  const now = Date.now();
+  let candidates = [];
+  if (ctx.speakers && typeof ctx.speakers.recent === 'function') {
+    candidates = ctx.speakers.recent({ withinMs: 180_000, limit: MAX_CANDIDATES, now });
   }
 
-  const now = Date.now();
-  const candidates = roster.recent({
-    withinMs: win.withinMs,
-    minAgeMs: win.minAgeMs,
-    limit: MAX_CANDIDATES,
-    now,
-  });
+  // 冷场时可能很久没人说话，退回观众簿；这时 @ 可能挂不出来，
+  // 但总比完全不开口好。
+  if (candidates.length === 0) {
+    const roster = ctx.roster;
+    if (!roster || typeof roster.recent !== 'function') {
+      // 没有观众簿（老宿主 / 某些沙盒）时直接静默：挑不到人就不说话，
+      // 绝不能退化成"随便 @ 一个名字"或纯文本 @ —— 那比不说更糟。
+      return;
+    }
+    candidates = roster.recent({
+      withinMs: win.withinMs,
+      minAgeMs: win.minAgeMs,
+      limit: MAX_CANDIDATES,
+      now,
+    });
+  }
+
   const picked = pickCandidate(candidates, cfg, st.called, now);
   if (!picked) {
     // 候选为空 / 全在冷却：**不清零 elapsed**。

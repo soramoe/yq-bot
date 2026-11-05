@@ -194,6 +194,7 @@ export class PluginHost {
    * @param {Function} [opts.getState] 返回房间状态快照（只读）
    * @param {object} [opts.configs]  { pluginId: 用户配置 }
    * @param {object} [opts.roster]   观众簿（只读使用；不存在时插件要能降级）
+   * @param {object} [opts.speakers] 最近说过话的人（只读；可选）
    */
   constructor({
     dir,
@@ -203,6 +204,7 @@ export class PluginHost {
     configs = {},
     enabled = {},
     roster = null,
+    speakers = null,
     /**
      * 沙盒用：每次加载都强制一份新的插件模块实例。
      *
@@ -235,6 +237,8 @@ export class PluginHost {
      * 否则插件被禁用一次，观众簿就断更一段，而且没人会发现。
      */
     this.roster = roster
+    /** 最近说过话的人：只读，用于判断"此刻还在不在房间里" */
+    this.speakers = speakers
 
     /** @type {Map<string, object>} id → 已加载的插件条目 */
     this.plugins = new Map()
@@ -405,6 +409,9 @@ export class PluginHost {
        */
       get roster() {
         return host.roster
+      },
+      get speakers() {
+        return host.speakers
       },
       get config() {
         return entry.config

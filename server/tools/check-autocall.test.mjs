@@ -55,6 +55,7 @@ function fakeCtx(config, opts = {}) {
     roster: Object.prototype.hasOwnProperty.call(opts, 'roster')
       ? opts.roster
       : makeRoster(opts.entries ?? [['1001', '甲', 60_000], ['1002', '乙', 120_000]]),
+    speakers: opts.speakers ?? null,
     log: { ...SILENT, warn: (m) => warns.push(String(m)) },
     render: (tpl, vars) =>
       String(tpl).replace(/\{([^{}]+)\}/g, (w, k) =>
@@ -365,6 +366,23 @@ test('主动招呼：早走了的人不在候选里', async (t) => {
   await flush()
   assert.equal(ctx.said.length, 1)
   assert.equal(ctx.said[0].reply.uid, '1002')
+})
+
+test('主动招呼：优先挑刚说过话的人，B站 才挂得出 @', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] })
+  const ctx = fakeCtx(cfg({ minAgeSec: 0, withinSec: 600 }), {
+    entries: [['1001', '很久没说话', 3_600_000]],
+    speakers: {
+      recent: () => [{ uid: '2002', name: '正在聊', lastSpokeAt: Date.now() - 5_000 }],
+    },
+  })
+  autocall.onStart(ctx)
+  t.after(() => autocall.onStop(ctx))
+
+  advance(t, 300_000)
+  await flush()
+  assert.equal(ctx.said.length, 1)
+  assert.equal(ctx.said[0].reply.uid, '2002', '刚说话的人一定还在房间，@ 才生效')
 })
 
 test('主动招呼：文案超长时跳过这一轮，不发半句、不刷日志', async (t) => {

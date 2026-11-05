@@ -117,6 +117,16 @@ export class RoomRunner extends EventEmitter {
      */
     this.roster = null;
 
+    /**
+     * 最近说过话的人（uid → {uid,name,lastSpokeAt}）。
+     *
+     * B站 的结构化 @ 只对**当前还在房间里**的人生效：目标已经走了时，
+     * 服务端会把 reply_mid 归零，观众看到的就是一条没有 @ 的普通弹幕。
+     * 观众簿只能说明"来过"，不能说明"还在"；刚发过弹幕的人则一定在。
+     * 主动招呼优先从这里挑人，@ 才挂得出来。
+     */
+    this._speakers = new Map();
+
     this.pluginsDir = pluginsDir;
     this.pluginConfigs = pluginConfigs;
     this.pluginEnabled = pluginEnabled;
@@ -204,6 +214,7 @@ export class RoomRunner extends EventEmitter {
       configs: this.pluginConfigs,
       enabled: this.pluginEnabled,
       roster: this.roster,
+      speakers: { recent: (opts) => this.recentSpeakers(opts) },
     });
   }
 
@@ -448,6 +459,25 @@ export class RoomRunner extends EventEmitter {
     }
 
     /**
+     * 记住"刚说过话的人"。只用于主动招呼挑人：
+     * 观众簿记的是来过，这里记的是此刻还在。
+     * 跳过机器人自己，否则会 @ 到自己。
+     */
+    if (record.type === EVENT.DANMAKU) {
+      const p = record.payload ?? {};
+      const uid = String(p.uid ?? '').trim();
+      const name = String(p.uname ?? '').trim();
+      const selfUid = String(this.client?.uid ?? '');
+      if (/^\d{1,20}$/.test(uid) && name && uid !== selfUid) {
+        this._speakers.set(uid, { uid, name, lastSpokeAt: record.ts });
+        if (this._speakers.size > 500) {
+          const first = this._speakers.keys().next().value;
+          if (first !== undefined) this._speakers.delete(first);
+        }
+      }
+    }
+
+    /**
      * 标题变更要立刻反映到 `info.title` —— 页头（brief）、房间总览
      * （roomsList）、开播提醒都读它。info 只在 start() 填过一次，
      * 不在这里跟的话，标题会停在启动那一刻，进程活多久就旧多久。
@@ -463,6 +493,26 @@ export class RoomRunner extends EventEmitter {
     this._dispatchToPlugins(record, edge);
 
     return record;
+  }
+
+  /**
+   * 最近说过话的人，按说话时间倒序。
+   *
+   * 只读、不写盘；超过窗口的不返回。给主动招呼挑人用 ——
+   * 刚发过弹幕的人一定还在房间，B站 才会把 @ 挂出来。
+   */
+  recentSpeakers({ withinMs = 180_000, limit = 100, now = Date.now() } = {}) {
+    const cap = Math.max(0, Math.min(500, Math.floor(Number(limit) || 0)));
+    if (cap === 0) return [];
+
+    const out = [];
+    for (const rec of this._speakers.values()) {
+      const age = now - rec.lastSpokeAt;
+      if (!Number.isFinite(age) || age < 0 || age > withinMs) continue;
+      out.push({ uid: rec.uid, name: rec.name, lastSpokeAt: rec.lastSpokeAt });
+    }
+    out.sort((a, b) => b.lastSpokeAt - a.lastSpokeAt);
+    return out.slice(0, cap);
   }
 
   /**
