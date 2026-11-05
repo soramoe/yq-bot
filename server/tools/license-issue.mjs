@@ -19,6 +19,41 @@ import { pathToFileURL } from 'node:url';
 import { canonicalJson, licensePayload, LICENSE_PRODUCT } from '../core/license.mjs';
 
 const DAY = 24 * 60 * 60 * 1000;
+const MAX_DAYS = 36_500;
+
+/** 签发台/命令行共用的输入校验，返回整理好的参数。 */
+export function validateSignRequest(body = {}) {
+  const machine = String(body.machine ?? '').trim().toLowerCase();
+  if (!/^[0-9a-f]{64}$/.test(machine)) throw new Error('机器码要是 64 位十六进制（页面上复制完整的那一串）');
+
+  const rawUid = String(body.uid ?? '').trim();
+  if (rawUid && !/^\d{1,20}$/.test(rawUid)) throw new Error('uid 只能填数字，或者留空不绑账号');
+  const uid = rawUid ? Number(rawUid) : 0;
+
+  const customer = String(body.customer ?? '').trim();
+  if (customer.length > 40) throw new Error('客户名最多 40 个字');
+
+  const edition = String(body.edition ?? 'personal');
+  if (!['personal', 'studio'].includes(edition)) throw new Error('版本只能是 personal 或 studio');
+
+  const days = body.days === undefined || body.days === '' ? 0 : Number(body.days);
+  if (!Number.isInteger(days) || days < 0 || days > MAX_DAYS) throw new Error('授权天数要是 0 到 36500 的整数（0 = 永久）');
+
+  const updatesDays = body.updatesDays === undefined || body.updatesDays === '' ? 365 : Number(body.updatesDays);
+  if (!Number.isInteger(updatesDays) || updatesDays < 0 || updatesDays > MAX_DAYS) throw new Error('更新期要是 0 到 36500 的整数（0 = 永久更新）');
+
+  const maxRooms = body.maxRooms === undefined || body.maxRooms === '' ? 1 : Number(body.maxRooms);
+  if (!Number.isInteger(maxRooms) || maxRooms < 1 || maxRooms > 50) throw new Error('房间数要是 1 到 50 的整数');
+
+  let features = [];
+  if (Array.isArray(body.features)) {
+    features = body.features.map((f) => String(f).trim()).filter(Boolean).slice(0, 20);
+  } else if (typeof body.features === 'string' && body.features.trim()) {
+    features = body.features.split(',').map((f) => f.trim()).filter(Boolean).slice(0, 20);
+  }
+
+  return { machine, uid, customer, edition, days, updatesDays, maxRooms, features };
+}
 
 export function loadPrivateKey({ pem, file, env = process.env } = {}) {
   const text =
