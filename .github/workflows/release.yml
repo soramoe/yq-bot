@@ -34,15 +34,15 @@ jobs:
       - name: Build update package
         run: |
           VERSION="${GITHUB_REF_NAME#v}"
+          OUT="$RUNNER_TEMP/yuyue3-${VERSION}.tar.gz"
           tar \
             --exclude=data \
             --exclude=.git \
             --exclude=.github \
-            --exclude='*.tar.gz' \
-            -czf "yuyue3-${VERSION}.tar.gz" .
-          SHA="$(sha256sum "yuyue3-${VERSION}.tar.gz" | cut -d' ' -f1)"
-          SIZE="$(stat -c%s "yuyue3-${VERSION}.tar.gz")"
-          export VERSION SHA SIZE
+            -czf "$OUT" .
+          SHA="$(sha256sum "$OUT" | cut -d' ' -f1)"
+          SIZE="$(stat -c%s "$OUT")"
+          export VERSION SHA SIZE OUT
           node - <<'NODE'
           const fs = require('fs');
           const { VERSION, SHA, SIZE } = process.env;
@@ -66,7 +66,7 @@ jobs:
         run: |
           VERSION="${GITHUB_REF_NAME#v}"
           gh release create "$GITHUB_REF_NAME" \
-            "yuyue3-${VERSION}.tar.gz" \
+            "$RUNNER_TEMP/yuyue3-${VERSION}.tar.gz" \
             latest.json \
             --title "渔月崽三代 v${VERSION}" \
             --generate-notes
