@@ -1344,6 +1344,8 @@ test('设置页：「维护」里有更新检查与诊断包，且检查更新�
   await new Promise((r) => setImmediate(r))
 
   assert.match(mBody.textContent, /当前版本 0\.2\.0/)
+  assert.match(mBody.textContent, /公益项目，请勿挪用收费/)
+  assert.match(mBody.textContent, /1092065806/)
   assert.match(mBody.textContent, /更新源/)
   assert.match(mBody.textContent, /诊断包/)
   assert.match(mBody.textContent, /不含 Cookie/, '要明确告诉用户这个包可以发给别人')
@@ -1380,6 +1382,12 @@ test('入口：维护在顶部独立菜单，插件列表不再有它；使用�
   const guide = readFileSync(join(process.cwd(), 'docs/guide.md'), 'utf8')
   assert.match(guide, /scripts\\install\.bat/, '使用说明要写清安装入口')
   assert.match(guide, /8900/, '使用说明要写页面地址')
+  assert.match(guide, /1092065806/, '使用说明要写 BUG 反馈群')
+  assert.match(
+    readFileSync(join(process.cwd(), 'README.md'), 'utf8'),
+    /1092065806/,
+    '仓库首页要写 BUG 反馈群',
+  )
 
   const launcher = readFileSync(join(process.cwd(), '启动渔情.bat'), 'utf8')
   assert.match(launcher, /scripts\\start\.bat/, '根目录快捷入口要复用 scripts 里的启动逻辑')

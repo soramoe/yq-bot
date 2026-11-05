@@ -1191,6 +1191,17 @@ dialog.dlg-wide[open] {
   line-height: var(--lh);
 }
 
+.plg-notice {
+  margin-bottom: var(--s4);
+  padding: 8px 12px;
+  border: 1px solid color-mix(in srgb, var(--warn) 45%, var(--line));
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--warn) 10%, transparent);
+  color: var(--text);
+  font-size: var(--fs-xs);
+  line-height: var(--lh);
+}
+
 .plg-foot {
   display: flex;
   align-items: center;

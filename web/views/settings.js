@@ -238,6 +238,14 @@ export function createSettings({ dlg, tabs, body, closeBtn, toast, mode = 'plugi
 
     const nodes = [];
 
+    // 公益声明：放在最上面，不缩在页脚里
+    nodes.push(
+      el('div', {
+        class: 'plg-notice',
+        text: '公益项目，请勿挪用收费 · BUG 反馈群：1092065806',
+      }),
+    );
+
     /* ── 账号 ── */
     nodes.push(el('div', { class: 'plg-group', text: '账号' }));
     nodes.push(
