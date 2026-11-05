@@ -5,10 +5,11 @@
  * 两者的目标地址形状、失败判定、甚至用户配置的东西都不一样；
  * 混在一起会让 notify.mjs 变成一个大杂烩。
  *
- * 支持三家：
+ * 支持四家：
  * - Bark（iOS，免费）：target 是 key，也接受完整的 `https://api.day.app/<key>`。
  * - ntfy（全平台，免费）：target 是 topic，也接受完整地址（自建服务）。
  * - Server酱（微信）：target 是 SendKey。
+ * - Telegram：target 是 `bot_token|chat_id`（token 里本身有冒号，所以用竖线分隔）。
  *
  * 三家都可能 HTTP 200 + body 里报错（key 失效、额度用光），所以不能只看
  * `res.ok`；HTTP 层的错误和平台错误都要落到返回值里。
@@ -17,7 +18,7 @@
 /** Server酱 的 SendKey 前缀；只是提示，不做强校验（老 key 可能不带）。 */
 const SERVERCHAN_KEY_HINT = 'SCT';
 
-export const PUSH_PROVIDERS = Object.freeze(['bark', 'ntfy', 'serverchan']);
+export const PUSH_PROVIDERS = Object.freeze(['bark', 'ntfy', 'serverchan', 'telegram']);
 
 export const MAX_PUSH_TARGET_LEN = 300;
 
@@ -36,6 +37,19 @@ export function pushTargetProblem(provider, target) {
   if (/\s/.test(t)) return '推送目标不能有空格';
 
   const looksUrl = /^https?:\/\//i.test(t);
+  if (provider === 'telegram') {
+    if (looksUrl) return 'Telegram 要填 bot_token|chat_id，不是网址';
+    const parts = t.split('|');
+    if (parts.length !== 2) return 'Telegram 要写成 bot_token|chat_id（中间用竖线隔开）';
+    const [token, chatId] = parts;
+    if (!/^\d{5,}:[A-Za-z0-9_-]{20,}$/.test(token)) {
+      return 'Telegram bot token 看起来不对（形如 123456:ABC…）';
+    }
+    if (!/^-?\d{5,}$/.test(chatId)) {
+      return 'Telegram chat_id 看起来不对（一般是数字，频道 / 群以 -100 开头）';
+    }
+    return '';
+  }
   if (!looksUrl && t.includes('://')) return '推送目标要是 http:// 或 https:// 开头的地址';
   if (provider === 'serverchan') {
     const key = t.replace(/^SCT/i, '');
@@ -113,6 +127,18 @@ export function buildPushRequest(provider, target, text, { title = '渔月崽三
     };
   }
 
+  if (provider === 'telegram') {
+    const [token, chatId] = t.split('|');
+    return {
+      url: `https://api.telegram.org/bot${token}/sendMessage`,
+      init: {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ chat_id: chatId, text: body, disable_web_page_preview: true }),
+      },
+    };
+  }
+
   // serverchan
   const key = t.replace(/^SCT/i, '');
   const init = {
@@ -148,6 +174,14 @@ export function pushError(provider, body) {
   if (provider === 'serverchan') {
     if (body.code !== undefined && body.code !== null && Number(body.code) !== 0) {
       return `code ${body.code}: ${body.message ?? body.info ?? ''}`.trim();
+    }
+    return '';
+  }
+
+  if (provider === 'telegram') {
+    if (body.ok === true) return '';
+    if (body.ok === false) {
+      return `Telegram 返回失败：${body.description ?? `code ${body.error_code ?? '?'}`}`;
     }
     return '';
   }

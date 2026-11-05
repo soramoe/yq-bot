@@ -23,6 +23,11 @@ const PROVIDERS = [
     label: 'Server酱（微信）',
     hint: '填 SendKey（一般以 SCT 开头），消息会到绑定的微信。',
   },
+  {
+    id: 'telegram',
+    label: 'Telegram',
+    hint: '填 bot_token|chat_id：token 从 @BotFather 拿，chat_id 可以先给 bot 发条消息，再用 getUpdates 查。',
+  },
 ];
 
 function providerLabel(id) {

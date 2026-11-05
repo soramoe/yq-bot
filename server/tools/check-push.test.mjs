@@ -14,10 +14,32 @@ test('推送配置：空、空格、超长、渠道不符都要能说清', () =>
   assert.match(pushTargetProblem('bark', ''), /不能为空/);
   assert.match(pushTargetProblem('bark', 'a b'), /空格/);
   assert.match(pushTargetProblem('bark', 'x'.repeat(301)), /太长/);
-  assert.match(pushTargetProblem('telegram', 'x'), /不认识/);
+  assert.match(pushTargetProblem('sms', 'x'), /不认识/);
   assert.equal(pushTargetProblem('bark', 'abc123'), '');
   assert.equal(pushTargetProblem('ntfy', 'yuyue3'), '');
   assert.equal(pushTargetProblem('serverchan', 'SCT123456789'), '');
+});
+
+test('Telegram：token|chat_id 的形状校验', () => {
+  const token = '123456789:AAHdqTcvCH1vGWJxfSeofSAs0K5PALDsaw';
+  assert.equal(pushTargetProblem('telegram', `${token}|-1001234567890`), '');
+  assert.match(pushTargetProblem('telegram', token), /bot_token\|chat_id/);
+  assert.match(pushTargetProblem('telegram', 'abc|123456789'), /bot token/);
+  assert.match(pushTargetProblem('telegram', `${token}|abc`), /chat_id/);
+  assert.match(pushTargetProblem('telegram', 'https://api.telegram.org/x'), /不是网址/);
+});
+
+test('Telegram：拼 sendMessage 请求，正文进 JSON', () => {
+  const token = '123456789:AAHdqTcvCH1vGWJxfSeofSAs0K5PALDsaw';
+  const req = buildPushRequest('telegram', `${token}|-1001234567890`, '开播了', { title: '标题不参与' });
+  assert.equal(req.url, `https://api.telegram.org/bot${token}/sendMessage`);
+  assert.equal(req.init.method, 'POST');
+  assert.equal(req.init.headers['content-type'], 'application/json');
+  assert.deepEqual(JSON.parse(req.init.body), {
+    chat_id: '-1001234567890',
+    text: '开播了',
+    disable_web_page_preview: true,
+  });
 });
 
 test('Bark：key 拼路径，完整地址原样用', () => {
@@ -58,6 +80,8 @@ test('平台错误：200 也可能是失败，按渠道读字段', () => {
   assert.match(pushError('ntfy', { error: 'topic is too small' }), /topic/);
   assert.equal(pushError('serverchan', { code: 0 }), '');
   assert.match(pushError('serverchan', { code: 40001, message: 'bad key' }), /bad key/);
+  assert.equal(pushError('telegram', { ok: true }), '');
+  assert.match(pushError('telegram', { ok: false, error_code: 403, description: 'Forbidden: bot was blocked by the user' }), /blocked/);
   assert.equal(pushError('bark', null), '');
 });
 
@@ -88,10 +112,18 @@ test('sendPush：网络失败不抛出，只返回 error', async () => {
 });
 
 test('sendPush：没配 fetch 或目标不合法时不请求', async () => {
-  assert.equal((await sendPush('bark', 'abc', 'hi', { fetchImpl: null })).ok, false);
+  const saved = globalThis.fetch;
+  globalThis.fetch = undefined;
+  try {
+    const r = await sendPush('bark', 'abc', 'hi', {});
+    assert.equal(r.ok, false);
+    assert.equal(r.error, 'no fetch');
+  } finally {
+    globalThis.fetch = saved;
+  }
   const bad = await sendPush('bark', 'bad key', 'hi', { fetchImpl: async () => assert.fail('不该请求') });
   assert.equal(bad.ok, false);
-  assert.ok(PUSH_PROVIDERS.includes('ntfy'));
+  assert.ok(PUSH_PROVIDERS.includes('telegram'));
 });
 
 test('sendPush：成功返回 status', async () => {

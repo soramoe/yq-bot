@@ -577,7 +577,7 @@ export function buildRoutes(app) {
   r.post('/api/push', async ({ req, res }) => {
     const body = await readJson(req);
     if (typeof body?.provider !== 'string' || typeof body?.target !== 'string') {
-      sendError(res, 400, 'bad_request', '需要 { "provider": "bark|ntfy|serverchan", "target": "…", "weekly": false }；两个都空表示关闭');
+      sendError(res, 400, 'bad_request', '需要 { "provider": "bark|ntfy|serverchan|telegram", "target": "…", "weekly": false }；两个都空表示关闭');
       return;
     }
     if (body.weekly !== undefined && typeof body.weekly !== 'boolean') {
