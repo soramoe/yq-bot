@@ -2428,3 +2428,90 @@ dialog#dlg-reports {
     width: 100%;
   }
 }
+
+/* ══════════════════════ 高光时间轴 ══════════════════════ */
+
+.hl {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s2);
+}
+
+.hl-head {
+  display: flex;
+  align-items: center;
+  gap: var(--s2);
+  flex-wrap: wrap;
+}
+
+.hl-title {
+  font-size: var(--fs-sm);
+  color: var(--text);
+}
+
+.hl-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.hl-row {
+  display: grid;
+  grid-template-columns: 46px 84px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: var(--s2);
+  padding: 5px var(--s2);
+  border-radius: var(--r2);
+  background: var(--bg-2);
+  font-size: var(--fs-sm);
+}
+
+.hl-time {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  color: var(--text-2);
+}
+
+.hl-offset {
+  color: var(--text-3);
+  font-size: var(--fs-xs);
+  font-variant-numeric: tabular-nums;
+}
+
+.hl-body {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-2);
+}
+
+.hl-body.is-super_chat {
+  color: var(--accent);
+}
+
+.hl-body.is-guard_buy {
+  color: var(--warn);
+}
+
+.hl-body.is-peak {
+  color: var(--text);
+}
+
+.hl-copy {
+  flex: none;
+}
+
+.hl-note {
+  margin: 0;
+  color: var(--text-3);
+  font-size: var(--fs-xs);
+}
+
+@media (max-width: 680px) {
+  .hl-row {
+    grid-template-columns: 42px minmax(0, 1fr) auto;
+  }
+  .hl-offset {
+    display: none;
+  }
+}

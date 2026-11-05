@@ -13,6 +13,7 @@ import { el, replaceChildren, svgEl } from '../core/dom.js';
 import { api } from '../core/api.js';
 import { saveBlob } from '../core/download.js';
 import { downloadPoster } from './report-poster.js';
+import { pickHighlights } from './highlights.js';
 import { battery, duration, guardName, hhmmss, n, yuan } from '../core/format.js';
 
 /** 时间戳 → "11-02 20:00" */
@@ -88,6 +89,8 @@ export function createReports({ dlg, toast }) {
   const chartBox = el('div', { class: 'rpt-chart' });
   const listBox = el('div', { class: 'rpt-list' });
   const timelineBox = el('div', { class: 'tl' });
+  const hlBox = el('div', { class: 'hl' });
+  let hlToken = 0;
 
   /* ── 沙盒区 ── */
   const daySelect = el('select', { class: 'rpt-select' });
@@ -206,6 +209,14 @@ export function createReports({ dlg, toast }) {
               attrs: { type: 'button' },
               on: { click: () => exportPoster(r) },
             }),
+            canOpen
+              ? el('button', {
+                  class: 'btn small hl-open',
+                  text: '高光',
+                  attrs: { type: 'button', title: '挑出这一场值得回看的瞬间，带时间点，可复制' },
+                  on: { click: () => openHighlights(r) },
+                })
+              : null,
             canOpen
               ? el('button', {
                   class: 'btn small tl-open',
@@ -442,6 +453,7 @@ export function createReports({ dlg, toast }) {
     LIVE_START: () => '开播',
     LIVE_END: () => '下播',
     SENT: (m) => `机器人：${m.text || '（无内容）'}`,
+    PEAK: (m) => `弹幕高峰：${n(m.count)} 条/格`,
   };
 
   /** 一条标记的正文，不带时间（列表里时间单独一列、占固定宽度） */
@@ -736,8 +748,10 @@ export function createReports({ dlg, toast }) {
   /** 回到场次列表（也用于换范围时强制收起） */
   function closeTimeline() {
     tlToken++;
+    hlToken++;
     tlCursorX = null;
     replaceChildren(timelineBox, []);
+    replaceChildren(hlBox, []);
     listBox.hidden = false;
   }
 
@@ -749,6 +763,112 @@ export function createReports({ dlg, toast }) {
       attrs: { type: 'button' },
       on: { click: closeTimeline },
     });
+  }
+
+  /** 复制到剪贴板；浏览器不给权限时返回 false，由调用方 toast。 */
+  async function copyText(text) {
+    try {
+      await navigator.clipboard.writeText(text);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  /**
+   * 高光：把时间轴里花钱最多、弹幕最密的几个瞬间挑出来。
+   *
+   * 和时间轴用同一份 `/api/timeline` 数据，不再单独统计 ——
+   * 否则同一场会出现「时间轴上 ¥12，高光里 ¥15」这种事。
+   */
+  async function openHighlights(r) {
+    const from = Number(r.startedAt) || 0;
+    const to = Number(r.endedAt) || Number(r.lastEventTs) || Date.now();
+    if (!(to > from)) {
+      toast('这一场的时长太短，没有可回看的片段', 'warn');
+      return;
+    }
+
+    const token = ++hlToken;
+    listBox.hidden = true;
+    replaceChildren(timelineBox, []);
+    replaceChildren(hlBox, [el('div', { class: 'empty-hint', text: '正在挑这一场的高光…' })]);
+
+    let data;
+    try {
+      data = await api.timeline({ from, to });
+    } catch (err) {
+      if (token !== hlToken) return;
+      replaceChildren(hlBox, [
+        el('div', { class: 'hl-head', children: [
+          el('span', { class: 'hl-title', text: '高光' }),
+          el('span', { class: 'spacer' }),
+          backBtn(),
+        ] }),
+        el('div', { class: 'empty-hint', text: `读不到高光：${err.message}` }),
+      ]);
+      return;
+    }
+    if (token !== hlToken) return;
+
+    const marks = Array.isArray(data.marks) ? data.marks : [];
+    const frames = Array.isArray(data.frames) ? data.frames : [];
+    const base = Number(data.from) || from;
+    const items = pickHighlights(marks, frames, { from: base });
+
+    const sameDay = new Date(base).toDateString() === new Date(to).toDateString();
+    const endLabel = sameDay ? hhmmss(to).slice(0, 5) : stampDate(to);
+
+    const lineOf = (m) =>
+      `${hhmmss(m.ts)}（已播 ${duration(Math.max(0, m.ts - base))}）${markBody(m)}`;
+
+    const copyAll = el('button', {
+      class: 'btn small',
+      text: '复制全部',
+      attrs: { type: 'button' },
+      on: {
+        click: async () => {
+          const ok = await copyText(items.map(lineOf).join('\n'));
+          toast(ok ? '已复制全部高光时间点' : '复制失败，浏览器没给剪贴板权限', ok ? 'info' : 'warn');
+        },
+      },
+    });
+
+    replaceChildren(hlBox, [
+      el('div', { class: 'hl-head', children: [
+        el('span', { class: 'hl-title', text: `高光 · ${stampDate(base)} → ${endLabel}` }),
+        el('span', { class: 'spacer' }),
+        items.length ? copyAll : null,
+        backBtn(),
+      ] }),
+      items.length
+        ? el('div', { class: 'hl-list' }, {
+            children: items.map((m) =>
+              el('div', { class: 'hl-row' }, {
+                children: [
+                  el('span', { class: 'hl-time', text: hhmmss(m.ts).slice(0, 5) }),
+                  el('span', { class: 'hl-offset', text: `+${duration(Math.max(0, m.ts - base))}` }),
+                  el('span', { class: `hl-body is-${String(m.type).toLowerCase()}`, text: markBody(m) }),
+                  el('button', {
+                    class: 'btn small hl-copy',
+                    text: '复制',
+                    attrs: { type: 'button' },
+                    on: {
+                      click: async () => {
+                        const ok = await copyText(lineOf(m));
+                        toast(ok ? '已复制这个时间点' : '复制失败，浏览器没给剪贴板权限', ok ? 'info' : 'warn');
+                      },
+                    },
+                  }),
+                ],
+              }),
+            ),
+          })
+        : el('div', { class: 'empty-hint', text: '这一场没有花钱事件，也没有明显的弹幕高峰；点「时间轴」看完整过程。' }),
+      data.marksTruncated
+        ? el('p', { class: 'hl-note', text: '这一场事件太多，时间轴只保留了前面一部分，高光可能不全。' })
+        : null,
+    ]);
   }
 
   /* ── 加载战报 ── */
@@ -955,6 +1075,7 @@ export function createReports({ dlg, toast }) {
       chartBox,
       listBox,
       timelineBox,
+      hlBox,
       el('div', {
         class: 'rpt-sandbox',
         children: [

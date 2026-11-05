@@ -2628,3 +2628,45 @@ test('PK 情报：按钮、弹窗与接线都在，换房要重拉', () => {
   assert.match(css, /\.pk-rank/)
 })
 
+
+/* ── 高光：只挑花钱的瞬间 ── */
+
+test('高光：只挑礼物和 SC，按时间排，返回能收起', async (t) => {
+  const payload = reportsPayload()
+  const timeline = timelinePayload()
+  installReportsDom(payload, [], timeline)
+  t.after(() => delete globalThis.fetch)
+
+  const { createReports } = await import('../../web/views/reports.js')
+  const { dlg } = mountReports(payload, [])
+  await createReports({ dlg, toast: () => {} }).open()
+
+  const open = dlg.all('hl-open')[0]
+  assert.ok(open, '每场卡片上都要有高光入口')
+  await open.listeners.click[0]()
+
+  const rows = dlg.all('hl-row')
+  assert.equal(rows.length, 2, 'SENT 不算高光，只有礼物和 SC')
+  assert.match(rows[0].textContent, /20:05/)
+  assert.match(rows[0].textContent, /辣条/)
+  assert.match(rows[1].textContent, /加油/)
+
+  const back = dlg._find((n) => n.tagName === 'BUTTON' && n.textContent === '返回列表')
+  assert.ok(back, '高光也要能返回列表')
+  await back.listeners.click[0]()
+  assert.equal(dlg.all('hl-row').length, 0, '返回后高光要收起')
+  assert.equal(dlg.all('rpt-list')[0].hidden, false, '列表要回来')
+})
+
+test('高光：按钮、纯函数和样式都在，别只画个壳', () => {
+  const reports = readFileSync(join(process.cwd(), 'web/views/reports.js'), 'utf8')
+  const picker = readFileSync(join(process.cwd(), 'web/views/highlights.js'), 'utf8')
+  const css = readFileSync(join(process.cwd(), 'web/app.css'), 'utf8')
+
+  assert.match(reports, /pickHighlights/, 'reports.js 要真的调用挑拣函数')
+  assert.match(reports, /openHighlights/, 'reports.js 要有打开高光的实现')
+  assert.match(reports, /hl-open/, '场次卡片要有高光按钮')
+  assert.match(picker, /export function pickHighlights/, 'highlights.js 要导出纯函数')
+  assert.match(css, /\.hl-row\s*\{/, '高光列表要有样式')
+  assert.match(css, /\.hl-copy\s*\{/, '复制按钮要有样式')
+})
