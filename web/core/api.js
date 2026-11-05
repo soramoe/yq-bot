@@ -224,6 +224,7 @@ export const api = {
 
   /* ── 更新 ── */
   setUpdateUrl: (url) => request('/api/update/url', { method: 'POST', body: { url } }),
+  setUpdateMirror: (url) => request('/api/update/mirror', { method: 'POST', body: { url } }),
   checkUpdate: ({ force = false } = {}) =>
     request('/api/update/check', { method: 'POST', body: { force }, timeout: 30000 }),
   updateDownload: () => request('/api/update/download', { method: 'POST', body: {}, timeout: 180000 }),

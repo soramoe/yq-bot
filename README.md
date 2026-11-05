@@ -218,7 +218,7 @@ npm run login              # 独立扫码登录（127.0.0.1:8898；服务在跑�
 npm run probe   <房间号>    # 探针：连上房间，事件逐条打出来
 npm run smoke   <房间号>    # 端到端：收一段再从日志重放，比对统计
 npm run demo    <房间号>    # 演练：真实房间 + 真实进场，看欢迎语会说什么（不真的发）
-npm run check              # 全部自检（824 项）
+npm run check              # 全部自检（828 项）
 ```
 
 `demo` 是安全的：dryRun 打开后不会真的发弹幕，可以拿任何直播间试。
@@ -500,7 +500,7 @@ npm run login        # 扫码登录（127.0.0.1:8898，终端也会打印二维�
 npm run probe  <房间号> [秒]   # 探针：连上真实房间，把事件逐条打出来
 npm run smoke  <房间号> [秒]   # 端到端：收一段弹幕，再从日志重放比对统计
 
-npm run check        # 全部自检（824 项，全离线）
+npm run check        # 全部自检（828 项，全离线）
 npm run check:p0     # 只跑地基
 npm run check:qr     # 只跑二维码编码器
 npm run check:login  # 只跑登录链路
@@ -555,6 +555,21 @@ https://github.com/<owner>/<repo>/releases/latest/download/latest.json
 `http://127.0.0.1:12450`）单独一行写进 `scripts\proxy.txt`，
 `scripts\start.bat` 会给服务设 `HTTP(S)_PROXY` 和 `NODE_USE_ENV_PROXY=1`。
 这个文件只在本机生效，已在 `.gitignore` 里；不需要代理就别建。
+
+### 更新镜像（给没有代理的机器）
+
+GitHub 在国内经常直连超时。维护页的「更新镜像」可以填一个能访问的
+https 静态目录，约定很简单：
+
+```
+https://<mirror>/latest.json                 ← 清单，和 Release 里那份一样
+https://<mirror>/yuyue3-0.3.0.tar.gz         ← 包文件名跟清单 download 的最后一段一致
+```
+
+检查更新时先读 `<mirror>/latest.json`，镜像失败才回落原更新源；下载时
+把清单里的 `download` 换成 `<mirror>/<包文件名>`。镜像只负责转发，
+`sha256` / `size` 仍然按清单校验，镜像改不了内容。镜像留空 = 不用。
+镜像必须是 https：更新包只从 https 下载，http 镜像会被拒绝。
 
 清单格式（v2；旧格式 `{version, notes, url}` 也能读，但不会出现下载按钮）：
 

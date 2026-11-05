@@ -20,7 +20,7 @@ import { join } from 'node:path';
 
 import { AccessGuard, passwordProblem, MIN_LENGTH } from '../core/access.mjs';
 import { checkOrigin, guardWrite } from '../http/write-guard.mjs';
-import { UpdateChecker, compareVersion, parseManifest } from '../core/update.mjs';
+import { UpdateChecker, compareVersion, mirrorDownloadUrl, parseManifest } from '../core/update.mjs';
 import {
   buildDiagnostic,
   crc32,
@@ -32,6 +32,7 @@ import {
   zipStore,
 } from '../core/diagnostic.mjs';
 import { App } from '../app.mjs';
+import { sha256Hex } from '../core/update-apply.mjs';
 
 /** 每个用例一个独立目录，互不影响 */
 function tmp(t) {
@@ -422,6 +423,135 @@ test('更新：5 分钟内重复点用缓存，force 才真的再发一次', asy
   assert.equal(called, 2, 'force 要能绕过缓存');
 
   assert.equal(c.snapshot().cached, true);
+});
+
+test('更新：配了镜像就先读镜像的 latest.json，按镜像重写下载地址', async () => {
+  const calls = [];
+  const c = new UpdateChecker({
+    current: '0.2.0',
+    getUrl: () => 'https://example.com/latest.json',
+    getMirror: () => 'https://mirror.example.com/yq/',
+    fetchImpl: async (url) => {
+      calls.push(String(url));
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          version: '0.3.0',
+          download: 'https://github.com/x/y/releases/download/v0.3.0/yuyue3-0.3.0.tar.gz',
+        }),
+      };
+    },
+  });
+
+  const r = await c.check();
+  assert.equal(calls.length, 1);
+  assert.match(calls[0], /^https:\/\/mirror\.example\.com\/yq\/latest\.json$/);
+  assert.equal(r.via, 'mirror');
+  assert.equal(r.hasUpdate, true);
+
+  assert.equal(
+    mirrorDownloadUrl(r.download, 'https://mirror.example.com/yq/'),
+    'https://mirror.example.com/yq/yuyue3-0.3.0.tar.gz'
+  );
+  // 没配镜像时原样返回，不能把地址拼坏
+  assert.equal(mirrorDownloadUrl(r.download, ''), r.download);
+});
+
+test('更新：镜像挂了要回落到原更新源，并把两边的错都带上', async () => {
+  const calls = [];
+  const c = new UpdateChecker({
+    current: '0.2.0',
+    getUrl: () => 'https://example.com/latest.json',
+    getMirror: () => 'https://mirror.example.com/yq',
+    fetchImpl: async (url) => {
+      calls.push(String(url));
+      if (String(url).startsWith('https://mirror.example.com')) {
+        throw Object.assign(new Error('timed out'), { name: 'TimeoutError' });
+      }
+      return { ok: true, status: 200, json: async () => ({ version: '0.3.0' }) };
+    },
+  });
+
+  const r = await c.check();
+  assert.equal(calls.length, 2);
+  assert.equal(r.via, 'source');
+  assert.equal(r.hasUpdate, true);
+
+  const dead = new UpdateChecker({
+    current: '0.2.0',
+    getUrl: () => 'https://example.com/latest.json',
+    getMirror: () => 'https://mirror.example.com/yq',
+    fetchImpl: async () => {
+      throw new Error('getaddrinfo ENOTFOUND');
+    },
+  });
+  const bad = await dead.check();
+  assert.match(bad.error, /镜像：/);
+  assert.match(bad.error, /更新源：/);
+});
+
+test('更新：设置镜像会落盘；非 http/https 拒绝，空值关闭', (t) => {
+  const dir = tmp(t);
+  const app = new App({ dataDir: dir, roomId: '1' });
+
+  assert.equal(app.setUpdateMirror('https://mirror.example.com/yq/').updateMirror, 'https://mirror.example.com/yq');
+  const saved = JSON.parse(readFileSync(join(dir, 'app.json'), 'utf8'));
+  assert.equal(saved.updateMirror, 'https://mirror.example.com/yq');
+
+  assert.throws(() => app.setUpdateMirror('ftp://mirror.example.com/yq'), (err) => err.status === 400);
+  assert.throws(() => app.setUpdateMirror('http://mirror.example.com/yq'), (err) => err.status === 400);
+  assert.equal(app.setUpdateMirror('').updateMirror, '');
+});
+
+test('更新：镜像下载把地址换到镜像，仍按清单的 sha256 / size 校验', async (t) => {
+  const dir = tmp(t);
+  const pkg = Buffer.from('fake-package-bytes');
+  const sha = sha256Hex(pkg);
+  const calls = [];
+
+  const app = new App({
+    dataDir: dir,
+    roomId: '1',
+    fetchImpl: async (url) => {
+      calls.push(String(url));
+      if (String(url).endsWith('/latest.json')) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            version: '0.2.4',
+            download: 'https://github.com/o/r/releases/download/v0.2.4/yuyue3-0.2.4.tar.gz',
+            sha256: sha,
+            size: pkg.length,
+          }),
+        };
+      }
+      return {
+        ok: true,
+        status: 200,
+        url: String(url),
+        headers: { get: () => String(pkg.length) },
+        arrayBuffer: async () => pkg.buffer.slice(pkg.byteOffset, pkg.byteOffset + pkg.length),
+      };
+    },
+  });
+
+  app.setUpdateUrl('https://example.com/latest.json');
+  app.setUpdateMirror('https://mirror.example.com/yq');
+
+  const r = await app.checkUpdate({ force: true });
+  assert.equal(r.via, 'mirror');
+  assert.deepEqual(calls, ['https://mirror.example.com/yq/latest.json']);
+
+  const d = await app.downloadUpdate();
+  assert.equal(
+    calls.at(-1),
+    'https://mirror.example.com/yq/yuyue3-0.2.4.tar.gz',
+    '下载应该走镜像里的同名文件'
+  );
+  assert.equal(d.bytes, pkg.length);
+  assert.equal(d.sha256, sha);
 });
 
 test('更新：同时点两次只发一次（并发合并，不是排队）', async () => {

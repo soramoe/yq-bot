@@ -19,7 +19,7 @@ import { AuthStore } from './auth.mjs';
 import { RoomRunner } from './room-runner.mjs';
 import { reconcile, formatReport } from './core/reconcile.mjs';
 import { AccessGuard } from './core/access.mjs';
-import { UpdateChecker } from './core/update.mjs';
+import { UpdateChecker, mirrorDownloadUrl } from './core/update.mjs';
 import { downloadPackage, packageProblem, sha256Hex } from './core/update-apply.mjs';
 import { buildDiagnostic } from './core/diagnostic.mjs';
 import { maskWebhook, notifyText, reportText, sendWebhook } from './core/notify.mjs';
@@ -147,6 +147,13 @@ export class App {
      * 和房间号、演练模式一样会随 app.json 落盘。
      */
     this.updateUrl = '';
+
+    /**
+     * 更新镜像基地址（可空）。有值时检查/下载优先走镜像：
+     * `<mirror>/latest.json` 与 `<mirror>/<包文件名>`。
+     * GitHub 在国内经常直连不通，镜像是不挂代理也能更新的办法。
+     */
+    this.updateMirror = '';
 
     /** 已下载待安装的更新包（只存在内存里；文件在 data/updates/） */
     this._updateDownload = null;
@@ -338,7 +345,13 @@ export class App {
     this.access = new AccessGuard({ dataDir });
 
     /** 更新检查器。getUrl 每次现取，改完配置立刻生效，不用重启 */
-    this.update = new UpdateChecker({ current: this.version, getUrl: () => this.updateUrl });
+    this.update = new UpdateChecker({
+      current: this.version,
+      getUrl: () => this.updateUrl,
+      getMirror: () => this.updateMirror,
+      // 自检注入用；生产环境是 null，交给 UpdateChecker 回落到 globalThis.fetch
+      fetchImpl: this.fetchImpl ?? undefined,
+    });
 
     /** 最近一次凭证校验结果。给页面显示"上次查是什么时候、结论是什么" */
     this._authCheck = null;
@@ -381,6 +394,17 @@ export class App {
     }
     // 更新源：空字符串也算有效值（用户主动清空 = 不要检查更新）
     if (typeof cfg.updateUrl === 'string') this.updateUrl = cfg.updateUrl.trim().slice(0, 500);
+    if (typeof cfg.updateMirror === 'string') {
+      const mirror = cfg.updateMirror.trim().replace(/\/+$/, '').slice(0, 500);
+      let ok = false;
+      try {
+        ok = !mirror || new URL(mirror).protocol === 'https:';
+      } catch {
+        ok = false;
+      }
+      if (ok) this.updateMirror = mirror;
+      else this.log.warn('[配置] data/app.json 里的 updateMirror 不是 https 地址，已忽略');
+    }
     // 提醒 webhook 同理：空 = 关闭提醒的外发，页内 toast 照旧。
     // 但不能像 updateUrl 那样静默截断：截断后的 URL 看起来能发，实际每次都失败，
     // 用户还会以为"配置还在"。写坏就忽略并说一声，别拿半截地址去请求。
@@ -784,6 +808,7 @@ export class App {
         logKeepDays: this.logKeepDays,
         rosterKeepDays: this.rosterKeepDays,
         updateUrl: this.updateUrl,
+        updateMirror: this.updateMirror,
         notifyWebhook: this.notifyWebhook,
         notifyReport: this.notifyReport,
         pushProvider: this.pushProvider,
@@ -1625,6 +1650,36 @@ export class App {
     return { updateUrl: this.updateUrl };
   }
 
+  /** 设置更新镜像基地址。空字符串 = 不用镜像，仍走更新源 */
+  setUpdateMirror(url) {
+    const next = String(url ?? '').trim().replace(/\/+$/, '').slice(0, 500);
+    if (next) {
+      let parsed;
+      try {
+        parsed = new URL(next);
+      } catch {
+        throw Object.assign(new Error('镜像地址不是合法 URL'), { status: 400, code: 'bad_mirror' });
+      }
+      if (parsed.protocol !== 'https:') {
+        throw Object.assign(new Error('镜像只支持 https（更新包只从 https 下载）'), {
+          status: 400,
+          code: 'bad_mirror',
+        });
+      }
+    }
+    const before = this.updateMirror;
+    this.updateMirror = next;
+    const saved = this._saveConfig();
+    if (saved === false) {
+      this.updateMirror = before;
+      throw Object.assign(new Error('保存镜像设置失败：写不进 data/app.json'), {
+        status: 500,
+        code: 'save_failed',
+      });
+    }
+    return { updateMirror: this.updateMirror };
+  }
+
   checkUpdate({ force = false } = {}) {
     return this.update.check({ force });
   }
@@ -1667,9 +1722,10 @@ export class App {
     }
 
     mkdirSync(dir, { recursive: true });
-    this.log.info(`[更新] 开始下载 v${version}…`);
+    const url = mirrorDownloadUrl(snap.download, this.updateMirror);
+    this.log.info(`[更新] 开始下载 v${version}…${url !== snap.download ? '（走镜像）' : ''}`);
     const buffer = await downloadPackage({
-      url: snap.download,
+      url,
       fetchImpl: this.fetchImpl ?? globalThis.fetch,
     });
     const problem = packageProblem(buffer, { sha256: snap.sha256, size: snap.size });
@@ -3223,6 +3279,7 @@ export class App {
         dryRun: this.dryRun,
         pluginsDir: this.pluginsDir,
         updateUrl: this.updateUrl,
+        updateMirror: this.updateMirror,
       },
       room: r ? r.snapshot() : null,
       brief: this.brief(),

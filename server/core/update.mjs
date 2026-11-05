@@ -96,18 +96,56 @@ export function parseManifest(data) {
   };
 }
 
+/**
+ * 把清单里的下载地址换成镜像地址。
+ *
+ * 镜像约定：`<mirror>/latest.json` 是清单，`<mirror>/<包文件名>` 是更新包。
+ * 文件名沿用清单里 download 的最后一段，镜像只需要放同名文件。
+ *
+ * @param {string} download 清单里的下载地址
+ * @param {string} mirror 镜像基地址（可空）
+ * @returns {string}
+ */
+export function mirrorDownloadUrl(download, mirror) {
+  const source = String(download ?? '').trim();
+  const base = String(mirror ?? '').trim().replace(/\/+$/, '');
+  if (!source || !base) return source;
+
+  let name = '';
+  try {
+    name = new URL(source).pathname.split('/').pop() ?? '';
+  } catch {
+    name = source.split('/').pop() ?? '';
+  }
+  if (!name) return source;
+  try {
+    return `${base}/${encodeURIComponent(decodeURIComponent(name))}`;
+  } catch {
+    return `${base}/${encodeURIComponent(name)}`;
+  }
+}
+
 export class UpdateChecker {
   /**
    * @param {object} opts
    * @param {string} opts.current 当前版本（来自 package.json）
    * @param {() => string} [opts.getUrl] 每次现取：用户改配置后立刻生效，不用重启
+   * @param {() => string} [opts.getMirror] 镜像基地址（可空）；有镜像时优先走镜像
    * @param {typeof fetch} [opts.fetchImpl] 自检注入用
    * @param {number} [opts.cacheMs]
    * @param {number} [opts.timeoutMs]
    */
-  constructor({ current, getUrl, fetchImpl = globalThis.fetch, cacheMs = CACHE_MS, timeoutMs = TIMEOUT_MS }) {
+  constructor({
+    current,
+    getUrl,
+    getMirror,
+    fetchImpl = globalThis.fetch,
+    cacheMs = CACHE_MS,
+    timeoutMs = TIMEOUT_MS,
+  }) {
     this.current = String(current ?? '0.0.0');
     this.getUrl = getUrl ?? (() => '');
+    this.getMirror = getMirror ?? (() => '');
     this.fetchImpl = fetchImpl;
     this.cacheMs = cacheMs;
     this.timeoutMs = timeoutMs;
@@ -132,18 +170,22 @@ export class UpdateChecker {
    */
   async check({ force = false } = {}) {
     const url = String(this.getUrl() ?? '').trim();
+    const mirror = String(this.getMirror() ?? '')
+      .trim()
+      .replace(/\/+$/, '');
+    const cacheKey = `${mirror}|${url}`;
 
-    // 没配更新源：明确说出来，并且不缓存 —— 用户随时可能填上，
+    // 没配更新源、也没配镜像：明确说出来，并且不缓存 —— 用户随时可能填上，
     // 缓存一个"没配置"的结论会让填完之后还要等 5 分钟才生效
-    if (!url) {
+    if (!url && !mirror) {
       return {
         configured: false,
         current: this.current,
-        hint: '还没有配置更新源。在 data/app.json 里填 updateUrl（一个返回版本 JSON 的地址）',
+        hint: '还没有配置更新源。在设置 → 维护里填更新源或镜像地址（也可直接改 data/app.json）',
       };
     }
 
-    if (!force && this._cache && this._cache.source === url && Date.now() - this._cache.checkedAt < this.cacheMs) {
+    if (!force && this._cache && this._cache.source === cacheKey && Date.now() - this._cache.checkedAt < this.cacheMs) {
       return { ...this._cache, cached: true };
     }
 
@@ -151,7 +193,32 @@ export class UpdateChecker {
     // 直接拒绝 —— 用户只是想看看，没必要让他看到"忙"
     if (this._inflight) return this._inflight;
 
-    this._inflight = this._doCheck(url).finally(() => {
+    this._inflight = (async () => {
+      const attempts = [];
+      // 有镜像就先走镜像：国内直连 GitHub 经常 8 秒都拿不到响应。
+      // 镜像挂了再回落到更新源，免得配错一个字就彻底检查不了。
+      if (mirror) attempts.push({ url: `${mirror}/latest.json`, via: 'mirror' });
+      if (url) attempts.push({ url, via: 'source' });
+
+      let mirrorError = '';
+      let last = null;
+      for (const attempt of attempts) {
+        const result = await this._doCheck(attempt.url);
+        if (!result.error) {
+          const out = { ...result, via: attempt.via, source: cacheKey, mirror };
+          this._cache = out;
+          return out;
+        }
+        if (attempt.via === 'mirror') mirrorError = result.error;
+        last = result;
+      }
+
+      const error =
+        mirrorError && attempts.length > 1 && last?.error
+          ? `镜像：${mirrorError}；更新源：${last.error}`
+          : mirrorError || last?.error || '检查更新失败';
+      return { configured: true, current: this.current, checkedAt: Date.now(), error };
+    })().finally(() => {
       this._inflight = null;
     });
     return this._inflight;

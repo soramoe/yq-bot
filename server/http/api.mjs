@@ -500,6 +500,16 @@ export function buildRoutes(app) {
     }
   });
 
+  r.post('/api/update/mirror', async ({ req, res }) => {
+    const body = (await readJson(req)) ?? {};
+    try {
+      const r = app.setUpdateMirror(body?.url);
+      sendJson(res, { ok: true, ...r });
+    } catch (err) {
+      sendError(res, err?.status ?? 400, err?.code ?? 'bad_mirror', err?.message ?? '镜像设置失败');
+    }
+  });
+
   r.post('/api/update/download', async ({ res }) => {
     try {
       const result = await app.downloadUpdate();

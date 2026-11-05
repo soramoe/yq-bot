@@ -304,6 +304,55 @@ export function createSettings({ dlg, tabs, body, closeBtn, toast }) {
 
     offerUpdate(snapshot);
 
+    const savedMirror = String(st.config?.updateMirror ?? '');
+    const mirrorInput = el('input', {
+      class: 'plg-input',
+      attrs: {
+        type: 'text',
+        value: savedMirror,
+        placeholder: '镜像地址（可选，例如 https://mirror.example.com/yq）',
+        spellcheck: 'false',
+      },
+    });
+    const saveMirrorBtn = el('button', { class: 'btn small', attrs: { type: 'button' }, text: '保存镜像' });
+    const mirrorNote = el('div', {
+      class: 'plg-hint',
+      text: savedMirror
+        ? `当前镜像：${savedMirror}`
+        : '留空 = 不用镜像；填了会先读镜像的 latest.json，失败再回落更新源',
+    });
+
+    nodes.push(
+      el('div', { class: 'plg-field' }, {
+        children: [
+          el('div', { class: 'plg-label', children: [el('span', { class: 'plg-label-text', text: '更新镜像' })] }),
+          mirrorInput,
+          el('div', { class: 'side-actions', children: [saveMirrorBtn] }),
+          mirrorNote,
+          el('div', {
+            class: 'plg-hint',
+            text: '镜像目录约定：latest.json 放清单，更新包放同目录同名文件；镜像只做转发，不改变校验',
+          }),
+        ],
+      }),
+    );
+
+    saveMirrorBtn.addEventListener('click', async () => {
+      saveMirrorBtn.disabled = true;
+      try {
+        const r = await api.setUpdateMirror(String(mirrorInput.value ?? '').trim());
+        mirrorInput.value = r.updateMirror ?? '';
+        mirrorNote.textContent = r.updateMirror ? `当前镜像：${r.updateMirror}` : '已清空镜像，之后只走更新源';
+        mirrorNote.className = 'plg-hint';
+        toast('镜像地址已保存', 'info');
+      } catch (err) {
+        mirrorNote.textContent = err.message;
+        mirrorNote.className = 'plg-hint is-error';
+      } finally {
+        saveMirrorBtn.disabled = false;
+      }
+    });
+
     nodes.push(
       el('div', { class: 'plg-field' }, {
         children: [
