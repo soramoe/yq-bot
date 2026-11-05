@@ -331,7 +331,7 @@ export function buildDiagnostic({
     {
       name: 'README.txt',
       data: [
-        '渔月崽三代 · 诊断包',
+        '渔情B站直播助手机器人 · 诊断包',
         '',
         `生成时间：${localText}（本地时间）`,
         `        ${now.toISOString()}（UTC，便于跨时区对照）`,

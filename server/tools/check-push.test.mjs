@@ -43,10 +43,10 @@ test('Telegram：拼 sendMessage 请求，正文进 JSON', () => {
 });
 
 test('Bark：key 拼路径，完整地址原样用', () => {
-  const a = buildPushRequest('bark', 'abc123', '开播了', { title: '渔月崽三代' });
+  const a = buildPushRequest('bark', 'abc123', '开播了', { title: '渔情B站直播助手机器人' });
   assert.equal(
     a.url,
-    `https://api.day.app/abc123/${encodeURIComponent('开播了')}?title=${encodeURIComponent('渔月崽三代')}&group=${encodeURIComponent('渔月崽三代')}&level=active`,
+    `https://api.day.app/abc123/${encodeURIComponent('开播了')}?title=${encodeURIComponent('渔情B站直播助手机器人')}&group=${encodeURIComponent('渔情直播助手')}&level=active`,
   );
   assert.equal(a.init.method, 'GET');
 
@@ -59,7 +59,7 @@ test('Bark：key 拼路径，完整地址原样用', () => {
 test('推送：完整地址自带 query 时追加参数，不再拼第二个问号', () => {
   const n = buildPushRequest('ntfy', 'https://ntfy.sh/yuyue3?auth=abc', 'hi');
   assert.equal(new URL(n.url).searchParams.get('auth'), 'abc');
-  assert.equal(new URL(n.url).searchParams.get('title'), '渔月崽三代');
+  assert.equal(new URL(n.url).searchParams.get('title'), '渔情B站直播助手机器人');
   assert.equal(n.url.split('?').length - 1, 1, '只能有一个问号');
 
   const b = buildPushRequest('bark', 'https://api.day.app/mykey?x=1', 'hi');

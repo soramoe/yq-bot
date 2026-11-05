@@ -29,7 +29,7 @@ const log = {
 const store = new AuthStore({ dataDir }).load();
 
 console.log('');
-console.log('  渔月崽三代 · 端到端验证');
+console.log('  渔情B站直播助手机器人 · 端到端验证');
 console.log(`  ${store.describe()}`);
 console.log('');
 

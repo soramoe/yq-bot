@@ -353,7 +353,7 @@ export function buildReportHtml({ reports = [], summary = {}, series = [], warni
   ${warnBlock}
 
   <footer>
-    本页由渔月崽三代从事件日志重放生成，不含 Cookie、口令或任何登录凭据。
+    本页由渔情B站直播助手机器人从事件日志重放生成，不含 Cookie、口令或任何登录凭据。
     数字与页面上的「场后战报」同源同口径。
   </footer>
 </main>

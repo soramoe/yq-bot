@@ -33,7 +33,7 @@ const log = {
 const store = new AuthStore({ dataDir: join(__dirname, '..', '..', 'data') }).load();
 
 console.log('');
-console.log('  渔月崽三代 · 直播间探针');
+console.log('  渔情B站直播助手机器人 · 直播间探针');
 console.log(`  ${store.describe()}`);
 console.log('');
 

@@ -30,7 +30,7 @@ const read = (...p) => readFileSync(join(WEB, ...p), 'utf8')
 const manifest = JSON.parse(read('manifest.webmanifest'))
 
 test('PWA 清单：必填字段齐全，装得上', () => {
-  assert.equal(manifest.name, '渔月崽三代 · 观测台')
+  assert.equal(manifest.name, '渔情B站直播助手机器人 · 观测台')
   assert.ok(manifest.short_name && manifest.short_name.length <= 12, 'short_name 太长会被系统截断')
   assert.equal(manifest.start_url, '/')
   assert.equal(manifest.scope, '/')
@@ -446,14 +446,14 @@ test('SW 真的能装上：install 预缓存整壳，断网时导航回落到壳
   const online = await ask('/')
   assert.ok(online, '导航请求必须被接管')
   assert.equal(online.status, 200)
-  assert.match(await online.text(), /<title>渔月崽三代/, '在线时要给服务器的真页面')
+  assert.match(await online.text(), /<title>渔情B站直播助手机器人/, '在线时要给服务器的真页面')
 
   /* ── fetch：断网回落成壳 ── */
   offline = true
   const offlineNav = await ask('/reports/deep-link')
   assert.ok(offlineNav, '断网打开必须给点东西，不能是浏览器的"无法连接"')
   assert.equal(offlineNav.status, 200)
-  assert.match(await offlineNav.text(), /<title>渔月崽三代/, '回落给的应该是壳')
+  assert.match(await offlineNav.text(), /<title>渔情B站直播助手机器人/, '回落给的应该是壳')
 
   /* ── fetch：接口永远不接管（无论在线离线） ── */
   assert.equal(await ask('/api/status', { mode: 'cors' }), undefined, '接口不该被 SW 接管')

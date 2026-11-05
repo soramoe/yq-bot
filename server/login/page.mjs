@@ -17,7 +17,7 @@ export function renderLoginPage(nonce) {
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>扫码登录 · 渔月崽三代</title>
+<title>扫码登录 · 渔情B站直播助手机器人</title>
 <style nonce="${nonce}">
   :root {
     --bg: #f4f5f7;
@@ -162,7 +162,7 @@ export function renderLoginPage(nonce) {
 </head>
 <body>
 <main class="card">
-  <span class="brand"><span class="dot"></span>渔月崽 · 三代</span>
+  <span class="brand"><span class="dot"></span>渔情 · 直播助手</span>
   <h1>扫码登录</h1>
   <p class="hint">用 B站 手机客户端扫描二维码</p>
 

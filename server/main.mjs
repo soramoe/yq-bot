@@ -43,7 +43,7 @@ function parseArgs(argv) {
 const args = parseArgs(process.argv.slice(2));
 
 if (args.help) {
-  console.log(`渔月崽三代
+  console.log(`渔情B站直播助手机器人
 
   npm start                      用上次记住的房间（演练模式）
   npm start -- --room 12345      指定房间
@@ -141,7 +141,7 @@ try {
   log.warn(`PID 文件写不进去（不影响运行）：${err.message}`);
 }
 console.log('');
-console.log(`  渔月崽三代 v${app.version}`);
+console.log(`  渔情B站直播助手机器人 v${app.version}`);
 console.log(`  房间   ${brief?.roomId ?? app.roomId}${brief?.title ? ` · ${brief.title}` : ''}`);
 console.log(`  模式   ${brief?.dryRun ? '演练（不会真的发弹幕）' : '真实发送'}`);
 console.log(`  插件   ${pluginCount} 个${args.plugins ? '' : '（已禁用）'}`);
