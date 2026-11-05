@@ -2670,3 +2670,15 @@ test('高光：按钮、纯函数和样式都在，别只画个壳', () => {
   assert.match(css, /\.hl-row\s*\{/, '高光列表要有样式')
   assert.match(css, /\.hl-copy\s*\{/, '复制按钮要有样式')
 })
+/* ── 健康状态灯：别只加个接口，页面得真的看 ── */
+
+test('服务健康：状态灯真的接在页面和 api 上', () => {
+  const html = readFileSync(join(process.cwd(), 'web/index.html'), 'utf8')
+  const app = readFileSync(join(process.cwd(), 'web/app.js'), 'utf8')
+  const apiSrc = readFileSync(join(process.cwd(), 'web/core/api.js'), 'utf8')
+
+  assert.ok(html.includes('id="health-pill"'), '顶部要有一个健康状态灯')
+  assert.match(app, /refreshHealth/, 'app.js 要真的去拉健康状态')
+  assert.match(app, /\/api\/health|api\.health/, 'app.js 要调健康接口')
+  assert.match(apiSrc, /health:\s*\(\)\s*=>\s*request\('\/api\/health'/, 'api.js 要有 health 方法')
+})

@@ -35,6 +35,7 @@ const dom = {
   connPill: $('#conn-pill'),
   connText: $('#conn-text'),
   offlinePill: $('#offline-pill'),
+  healthPill: $('#health-pill'),
   dryToggle: $('#dryrun-toggle'),
   btnRoom: $('#btn-room'),
   btnPlugins: $('#btn-plugins'),
@@ -833,3 +834,32 @@ connect();
 
 // 排行这类"变化慢"的数据每 3 秒补一次完整状态即可
 setInterval(refreshStatus, 3000);
+
+/* 健康检查是低频的：服务会不会出事，不会在一秒内变来变去 */
+let lastHealth = null;
+
+function renderHealth(h) {
+  lastHealth = h;
+  const issues = Array.isArray(h?.issues) ? h.issues : [];
+  dom.healthPill.hidden = issues.length === 0;
+  if (!issues.length) return;
+  dom.healthPill.textContent = `服务告警 ${issues.length}`;
+  dom.healthPill.title = issues.map((x) => x.text).join('\n');
+}
+
+async function refreshHealth() {
+  try {
+    renderHealth(await api.health());
+  } catch {
+    // 健康接口自己都打不开时，别在页面上再叠一层红字
+  }
+}
+
+dom.healthPill.addEventListener('click', () => {
+  const issues = lastHealth?.issues ?? [];
+  if (!issues.length) return;
+  toast(issues.map((x) => x.text).join('；'), 'warn');
+});
+
+refreshHealth();
+setInterval(refreshHealth, 60_000);

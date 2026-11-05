@@ -53,6 +53,7 @@ import { verifyCookie } from './bili/login.mjs';
 import { fetchRoomInfo, resolveRoomId } from './bili/room.mjs';
 import { fetchOnlineRank } from './bili/rank.mjs';
 import { PK_POLL_SEC, opponentEdge, pkCompare, pkRoomIdOf, pkRoomView, pkStale } from './core/pk.mjs';
+import { healthView } from './core/health.mjs';
 
 const SILENT_LOG = { debug() {}, info() {}, warn() {}, error() {} };
 
@@ -209,6 +210,18 @@ export class App {
     this._obsBusy = false;
     this._obsPending = null;
     this._obsLastScene = '';
+
+    /**
+     * 服务健康：只在需要人看一眼时报，别把每次重连都当事故。
+     * `healthAlert=false` 可以整组关掉（页面上的状态仍然能看）。
+     */
+    this.healthAlert = true;
+    this._healthTimer = null;
+    this._healthSaid = new Map();
+    this._lastEventAt = 0;
+    this._logErrorAt = 0;
+    this._wsStatus = '';
+    this._wsReconnectingSince = 0;
 
     /**
      * 单笔大额提醒的阈值（电池，0 = 关闭）。
@@ -387,6 +400,8 @@ export class App {
     // 没有手机推送出口，周报无处可去；手工改配置留下的半套状态要收掉
     if (!this.pushProvider || !this.pushTarget) this.weeklyReport = false;
 
+    if (typeof cfg.healthAlert === 'boolean') this.healthAlert = cfg.healthAlert;
+
     // OBS：地址必须是 ws:// 或 wss://；写坏就把整组关掉，不拿半套配置去连
     if (typeof cfg.obsEnabled === 'boolean') this.obsEnabled = cfg.obsEnabled;
     if (typeof cfg.obsUrl === 'string') this.obsUrl = cfg.obsUrl.trim();
@@ -506,6 +521,11 @@ export class App {
     }, 6 * 3600_000);
     this._rosterTimer.unref?.();
 
+    // 一分钟看一次：断线 / 安静 / 写日志失败。只在"需要人看一眼"时响，
+    // 每次问题最多 30 分钟提醒一次，免得手机被同一条消息刷屏。
+    this._healthTimer = setInterval(() => this._runHealth(), 60_000);
+    this._healthTimer.unref?.();
+
     this._armWeeklyReport();
     this._armPk();
 
@@ -554,10 +574,17 @@ export class App {
     });
     runner.on('status', (s) => {
       if (!this._isActive(room)) return;
+      // 健康检查只看当前房间：后台房间断线不该刷当前页的告警
+      const next = String(s?.status ?? '');
+      if (next === 'reconnecting' && this._wsStatus !== 'reconnecting') {
+        this._wsReconnectingSince = Date.now();
+      }
+      this._wsStatus = next;
       this._emit({ type: 'conn', data: { status: s } });
     });
     runner.on('logError', (err) => {
       if (!this._isActive(room)) return;
+      this._logErrorAt = Date.now();
       this._emit({ type: 'notice', data: { level: 'error', text: `写日志失败：${err.message}` } });
     });
 
@@ -652,6 +679,10 @@ export class App {
       clearInterval(this._pkTimer);
       this._pkTimer = null;
     }
+    if (this._healthTimer) {
+      clearInterval(this._healthTimer);
+      this._healthTimer = null;
+    }
     // 所有房间都要停：只停当前那个的话，后台房间的长连会一直挂着，
     // 进程看起来"退出"了却又被 keep-alive 拖住
     const rooms = [...this.rooms.values()];
@@ -712,6 +743,7 @@ export class App {
         pushProvider: this.pushProvider,
         pushTarget: this.pushTarget,
         weeklyReport: this.weeklyReport,
+        healthAlert: this.healthAlert,
         pkRoomId: this.pkRoomId,
         obsEnabled: this.obsEnabled,
         obsUrl: this.obsUrl,
@@ -1696,6 +1728,10 @@ export class App {
   _onEvent(room, rec, edge) {
     if (!room || !rec) return;
 
+    // 健康检查的"安静了多久"按收到事件的时间算，不按事件自带的 ts：
+    // 断线重连补旧事件时，补发的历史不该把安静计时冲掉。
+    if (this._isActive(room)) this._lastEventAt = Date.now();
+
     // 追加进缓冲。用 seq 判断是否重复：插件重放、补发重叠都可能送来同一条
     const last = room.events[room.events.length - 1];
     if (last && rec.seq <= last.seq) {
@@ -2359,6 +2395,39 @@ export class App {
   /** 立即拉一次。面板上的「刷新」用这个，不用等 60 秒。 */
   async pollPk() {
     return this._pollPk();
+  }
+
+  /** 当前房间的健康快照；页面和手机告警读的是同一份判断。 */
+  healthSnapshot() {
+    const info = this.runner?.info ?? {};
+    return healthView({
+      status: this._wsStatus,
+      liveState: info.liveState ?? '',
+      reconnectingSince: this._wsReconnectingSince,
+      lastEventAt: this._lastEventAt,
+      lastLogErrorAt: this._logErrorAt,
+      now: Date.now(),
+    });
+  }
+
+  /** 每 60 秒跑一次：同一类问题 30 分钟内只提醒一次，条件消失后清掉。 */
+  _runHealth() {
+    if (!this.healthAlert) return;
+    const view = this.healthSnapshot();
+
+    for (const issue of view.issues) {
+      const last = this._healthSaid.get(issue.code) ?? 0;
+      if (Date.now() - last < 30 * 60_000) continue;
+      this._healthSaid.set(issue.code, Date.now());
+      this._emit({ type: 'notice', data: { level: issue.level, text: issue.text } });
+      this.log.warn(`[健康] ${issue.text}`);
+      this._pushText('服务告警', issue.text);
+    }
+
+    // 问题自己好了就把去重清掉：下次再坏，应该重新提醒
+    for (const code of [...this._healthSaid.keys()]) {
+      if (!view.issues.some((x) => x.code === code)) this._healthSaid.delete(code);
+    }
   }
 
   _armPk() {

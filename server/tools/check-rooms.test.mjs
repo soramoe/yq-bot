@@ -2797,3 +2797,58 @@ test('PK：数据超过 3 分钟时标记 stale，页面据此提示可能过期
   assert.equal(view.stale, true)
   assert.equal(view.at > 0, true)
 })
+
+/* ── 服务健康：断线要响，但不能刷屏 ── */
+
+test('健康：断线各报一次，恢复后再坏能重新报', async (t) => {
+  const { app } = makeApp(t, { rooms: ['100'] })
+  await app.start()
+
+  const notices = []
+  app.subscribe((m) => { if (m.type === 'notice') notices.push(m.data) })
+
+  app._wsStatus = 'closed'
+  app._runHealth()
+  assert.equal(notices.length, 1, '断线要提醒一次')
+  assert.equal(notices[0].level, 'error')
+  assert.match(notices[0].text, /听不到/)
+
+  app._runHealth()
+  assert.equal(notices.length, 1, '同一个问题 30 分钟内不重复刷屏')
+
+  // 连接恢复：去重键要清掉，下次再断能重新提醒
+  app._wsStatus = 'live'
+  app._runHealth()
+  app._wsStatus = 'closed'
+  app._runHealth()
+  assert.equal(notices.length, 2, '好了以后再坏，应该重新提醒')
+})
+
+test('健康：接口返回当前房间快照，开播中安静也算问题', async (t) => {
+  const { app } = makeApp(t, { rooms: ['100'] })
+  await app.start()
+  app.runner.info.liveState = 'live'
+  app._lastEventAt = Date.now() - 16 * 60_000
+
+  const routes = buildRoutes(app)
+  const res = fakeRes()
+  await routes.match('GET', '/api/health').handler({ res, url: new URL('http://x/api/health'), app })
+
+  const view = JSON.parse(res.body)
+  assert.equal(view.ok, false)
+  assert.equal(view.liveState, 'live')
+  assert.equal(view.issues[0].code, 'quiet')
+})
+
+test('健康：整组关掉后不再自动提醒，但接口照样能看', async (t) => {
+  const { app } = makeApp(t, { rooms: ['100'] })
+  await app.start()
+  app.healthAlert = false
+  const notices = []
+  app.subscribe((m) => { if (m.type === 'notice') notices.push(m.data) })
+
+  app._wsStatus = 'closed'
+  app._runHealth()
+  assert.equal(notices.length, 0, '关掉后不主动响')
+  assert.equal(app.healthSnapshot().ok, false, '关掉的是提醒，不是状态本身')
+})
