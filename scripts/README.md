@@ -62,6 +62,29 @@ uninstall-autostart.bat  删除计划任务
 日志在 `logs\service.out.log`（超过 5MB 时启动会轮转成 `.1`）。
 PID 在 `data\run.pid`，暂停标记在 `logs\service.paused`。
 
+## 更新镜像（可选）
+
+没有代理的机器连不上 GitHub 时，把更新包搬到自己的 https 静态目录：
+
+```
+# 本地目录（nginx / Caddy 指过去）
+node scripts\mirror-release.mjs --dir D:\mirror\yq --keep 5 --base https://mirror.example.com/yq
+
+# S3 兼容存储（R2 / MinIO / AWS；OSS、COS 的 S3 接口也可）
+set S3_ACCESS_KEY=...
+set S3_SECRET_KEY=...
+node scripts\mirror-release.mjs --s3 yq-mirror --endpoint https://<账号>.r2.cloudflarestorage.com --region auto --prefix yq
+
+# 只看会发布什么，不写不传
+node scripts\mirror-release.mjs --dir D:\mirror\yq --dry-run
+```
+
+默认从 `data/app.json` 的 `updateUrl` 读清单；也可以 `--manifest <url>` 指定。
+程序要求镜像目录里同时有 `latest.json` 和清单 `download` 最后一段同名的包；
+脚本会校验 `size` 和 `sha256` 再落盘，传上去的内容和 Release 一致。
+
+`--allow-http` 只用于本地自检，公网镜像必须是 https。
+
 ## 注意
 
 - 端口固定 `8900`；要换端口改 `start.bat` 里的 `PORT`，同时改

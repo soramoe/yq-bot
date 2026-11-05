@@ -218,7 +218,7 @@ npm run login              # 独立扫码登录（127.0.0.1:8898；服务在跑�
 npm run probe   <房间号>    # 探针：连上房间，事件逐条打出来
 npm run smoke   <房间号>    # 端到端：收一段再从日志重放，比对统计
 npm run demo    <房间号>    # 演练：真实房间 + 真实进场，看欢迎语会说什么（不真的发）
-npm run check              # 全部自检（828 项）
+npm run check              # 全部自检（833 项）
 ```
 
 `demo` 是安全的：dryRun 打开后不会真的发弹幕，可以拿任何直播间试。
@@ -500,7 +500,7 @@ npm run login        # 扫码登录（127.0.0.1:8898，终端也会打印二维�
 npm run probe  <房间号> [秒]   # 探针：连上真实房间，把事件逐条打出来
 npm run smoke  <房间号> [秒]   # 端到端：收一段弹幕，再从日志重放比对统计
 
-npm run check        # 全部自检（828 项，全离线）
+npm run check        # 全部自检（833 项，全离线）
 npm run check:p0     # 只跑地基
 npm run check:qr     # 只跑二维码编码器
 npm run check:login  # 只跑登录链路
@@ -570,6 +570,20 @@ https://<mirror>/yuyue3-0.3.0.tar.gz         ← 包文件名跟清单 download 
 把清单里的 `download` 换成 `<mirror>/<包文件名>`。镜像只负责转发，
 `sha256` / `size` 仍然按清单校验，镜像改不了内容。镜像留空 = 不用。
 镜像必须是 https：更新包只从 https 下载，http 镜像会被拒绝。
+
+镜像里的文件不用手搬，发布后跑一次：
+
+```bash
+# 写到本地目录（静态服务器指过去）
+node scripts/mirror-release.mjs --dir D:\mirror\yq --keep 5 --base https://mirror.example.com/yq
+
+# 或者传到 S3 兼容存储（R2 / MinIO / AWS）
+set S3_ACCESS_KEY=... && set S3_SECRET_KEY=...
+node scripts/mirror-release.mjs --s3 yq-mirror --endpoint https://<账号>.r2.cloudflarestorage.com --prefix yq
+```
+
+脚本会读清单、下载包、按 `sha256` / `size` 校验，再写/传到镜像；
+本地目录模式默认保留最近 5 个旧包，给还没升的机器留退路。
 
 清单格式（v2；旧格式 `{version, notes, url}` 也能读，但不会出现下载按钮）：
 
