@@ -1160,6 +1160,42 @@ test('运行体：高能榜失败时静默降级为「无法确认」，不拖�
   assert.equal(calls, 1, '失败结果也要缓存，直播中不能每个候选都打一次接口')
 })
 
+test('运行体：最近说话的人重复开口要挪到队尾，不能被当成「最早来的」先挤掉', async () => {
+  const { RoomRunner } = await import('../room-runner.mjs')
+  const { EventLog } = await import('../core/event-log.mjs')
+  const { Projection } = await import('../core/projection.mjs')
+  const dir = mkdtempSync(join(tmpdir(), 'yy3-speakers-'))
+  const runner = new RoomRunner({ roomId: '100', dataDir: dir, pluginsDir: null })
+  runner.realRoomId = 100
+  runner.log_ = new EventLog({ root: dir, roomId: '100' })
+  runner.projection = new Projection('100')
+  runner.info = {}
+  runner.client = { uid: '999' }
+
+  const speak = (uid, name) =>
+    runner._ingest({ type: 'DANMAKU', payload: { uid, uname: name, text: 'hi' } })
+
+  speak('1', '甲')
+  speak('2', '乙')
+  speak('999', '机器人自己')
+  speak('3', '丙')
+  speak('1', '甲')
+
+  const keys = [...runner._speakers.keys()]
+  assert.equal(keys.includes('999'), false, '机器人自己的弹幕不能进候选')
+  assert.equal(keys.at(-1), '1', '刚说过话的人应该在队尾（最新）')
+  assert.deepEqual(keys, ['2', '3', '1'])
+
+  // 塞满 500 人，再让 1 号说一句；再加新人时，被挤掉的必须是最久没说话的那个
+  for (let i = 10; i < 507; i++) speak(String(i), `u${i}`)
+  speak('1', '甲')
+  assert.equal(runner._speakers.size, 500)
+  speak('600', '新人')
+  assert.equal(runner._speakers.size, 500)
+  assert.equal(runner._speakers.has('1'), true, '1 号刚说过，不能被当成最老的挤掉')
+  assert.equal(runner._speakers.has('2'), false, '最久没说话的人先淘汰')
+})
+
 test('房间：上一次启动失败，再打开一次会真的重试（不是原地返回）', async (t) => {
   const { app } = makeApp(t, { rooms: ['100'] })
   FakeRunner.failNext = 1

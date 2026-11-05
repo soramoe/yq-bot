@@ -201,6 +201,22 @@ test('更新包：下载只走 https，http 地址在发请求前就拒绝', asy
   assert.equal(called, 0);
 });
 
+test('更新包：https 被重定向到 http 也要拒绝，不能只看起始地址', async () => {
+  await assert.rejects(
+    downloadPackage({
+      url: 'https://example.com/pkg.tar.gz',
+      fetchImpl: async () => ({
+        ok: true,
+        status: 200,
+        url: 'http://example.com/pkg.tar.gz',
+        headers: { get: () => '10' },
+        arrayBuffer: async () => Buffer.alloc(10),
+      }),
+    }),
+    /非 https/,
+  );
+});
+
 test('更新下载：校验通过才落盘，重复下载复用缓存', async (t) => {
   const dataDir = makeRoot(t);
   const pkg = gzipSync(makeTar([{ name: 'server/app.mjs', data: 'new' }]));

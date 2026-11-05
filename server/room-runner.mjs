@@ -481,6 +481,9 @@ export class RoomRunner extends EventEmitter {
       const name = String(p.uname ?? '').trim();
       const selfUid = String(this.client?.uid ?? '');
       if (/^\d{1,20}$/.test(uid) && name && uid !== selfUid) {
+        // 先删再插：Map 的插入顺序就是淘汰顺序，重复说话要把人挪到队尾，
+        // 否则一个老观众会被永久排在最前面、每次先被挤掉。
+        if (this._speakers.has(uid)) this._speakers.delete(uid);
         this._speakers.set(uid, { uid, name, lastSpokeAt: record.ts });
         if (this._speakers.size > 500) {
           const first = this._speakers.keys().next().value;

@@ -67,8 +67,9 @@ export async function fetchOnlineRank({
   url.searchParams.set('roomId', String(roomId));
   // 这个接口要求带登录 uid；传 0 会直接 -400。
   // 连接还没拿到 uid 时，从 cookie 的 DedeUserID 兜底，别让查榜白跑。
+  const argRuid = String(ruid ?? '').trim();
   const fromCookie = /(?:^|;\s*)DedeUserID=(\d{1,20})/.exec(cookie || '')?.[1] || '';
-  url.searchParams.set('ruid', String(ruid || fromCookie || 0));
+  url.searchParams.set('ruid', argRuid && argRuid !== '0' ? argRuid : fromCookie || '0');
   url.searchParams.set('page', String(page));
   url.searchParams.set('pageSize', String(pageSize));
 

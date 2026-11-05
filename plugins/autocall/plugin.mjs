@@ -278,7 +278,9 @@ async function tick(ctx, st) {
   // 保持旧行为（正文带名字 + 结构化 @），不能因为查不到就把人当离线。
   const canCheckPresence = ctx.presence && typeof ctx.presence.has === 'function';
   const online = canCheckPresence
-    ? Boolean(await ctx.presence.has(picked.uid).catch(() => false))
+    ? Boolean(
+        await Promise.resolve(ctx.presence.has(picked.uid)).catch(() => false),
+      )
     : null;
 
   const withName = ctx.render(tpl, { 用户: picked.name });

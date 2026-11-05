@@ -73,6 +73,20 @@ test('高能榜：没传 ruid 时从 cookie 的 DedeUserID 兜底，不能传 0'
   assert.equal(seen.url.searchParams.get('ruid'), '1970515035');
 });
 
+test('高能榜：ruid 传字符串 "0" 也要按缺失处理，从 cookie 兜底', async () => {
+  let seen = null;
+  await fetchOnlineRank({
+    roomId: 100,
+    ruid: '0',
+    cookie: 'DedeUserID=1970515035',
+    fetchImpl: async (url) => {
+      seen = url;
+      return { json: async () => okJson([]) };
+    },
+  });
+  assert.equal(seen.searchParams.get('ruid'), '1970515035');
+});
+
 test('高能榜：没有 cookie 时不带 Cookie 头，ruid 缺省 0', async () => {
   let seen = null;
   await fetchOnlineRank({

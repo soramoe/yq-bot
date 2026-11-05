@@ -73,6 +73,20 @@ export async function downloadPackage({ url, fetchImpl = globalThis.fetch, timeo
   });
   if (!res?.ok) throw new Error(`下载更新包失败：HTTP ${res?.status ?? '?'}`);
 
+  // fetch 会跟随重定向；起始地址是 https 不代表最终落点也是。
+  // 只要落地不是 https，就按明文下载处理，直接拒绝。
+  if (res.url) {
+    let finalUrl;
+    try {
+      finalUrl = new URL(res.url);
+    } catch {
+      throw new Error('更新包下载的最终地址不可信');
+    }
+    if (finalUrl.protocol !== 'https:') {
+      throw new Error('更新包下载被重定向到非 https 地址');
+    }
+  }
+
   const declared = Number(res.headers?.get?.('content-length') ?? 0);
   if (declared > MAX_PACKAGE_BYTES) throw new Error('更新包太大了（超过 100MB）');
 
@@ -121,13 +135,19 @@ export function backupAndReplace({ root, staging, items = REPLACE_ITEMS, backupD
     }
   }
 
-  // 依赖只增不减地合并：不删 node_modules 里用户自己装的东西
+  // 依赖只增不减地合并：不删 node_modules 里用户自己装的东西。
+  // 合并失败也要把代码回滚回去，否则进程下次启动就是"代码新了、依赖没跟上"。
   const incomingModules = join(staging, 'node_modules');
   if (existsSync(incomingModules)) {
-    cpSync(incomingModules, join(root, 'node_modules'), {
-      recursive: true,
-      force: true,
-    });
+    try {
+      cpSync(incomingModules, join(root, 'node_modules'), {
+        recursive: true,
+        force: true,
+      });
+    } catch (err) {
+      rollback();
+      throw new Error(`合并依赖失败：${err?.message ?? err}`);
+    }
   }
 
   return touched;
