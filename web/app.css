@@ -1028,7 +1028,8 @@ dialog.dlg-wide[open] {
   font-weight: 500;
 }
 
-/* 插件 tab 横向滚动而不是换行：插件多的时候换行会把表单挤到看不见 */
+/* 插件 tab 横向滚动而不是换行：插件多的时候换行会把表单挤到看不见。
+   PC 上留一条可见的细滚动条，鼠标滚轮由 settings.js 翻成横向滚动。 */
 .plg-tabs {
   flex: none;
   display: flex;
@@ -1036,10 +1037,15 @@ dialog.dlg-wide[open] {
   padding: var(--s2) var(--s4);
   overflow-x: auto;
   border-bottom: 1px solid var(--line-soft);
-  scrollbar-width: none;
+  scrollbar-width: thin;
+  scrollbar-color: var(--line) transparent;
 }
 .plg-tabs::-webkit-scrollbar {
-  display: none;
+  height: 6px;
+}
+.plg-tabs::-webkit-scrollbar-thumb {
+  background: var(--line);
+  border-radius: 999px;
 }
 
 .plg-tab {

@@ -51,6 +51,23 @@ export function createSettings({ dlg, tabs, body, closeBtn, toast }) {
   let current = null;
   let loading = false;
 
+  // 插件的 tab 是横向滚动。触控板可以横扫，但 PC 的滚轮只有上下：
+  // 滚轮落在 tab 条上时把它翻译成横向滚动。只有真的还能滚才拦默认行为，
+  // 滚到头之后继续滚，页面该滚还是滚。
+  function wheelToHorizontal(e) {
+    if (e.ctrlKey || e.defaultPrevented) return;
+    const max = tabs.scrollWidth - tabs.clientWidth;
+    if (!(max > 0)) return;
+    const delta = Math.abs(e.deltaY) >= Math.abs(e.deltaX) ? e.deltaY : e.deltaX;
+    if (!delta) return;
+    const before = tabs.scrollLeft;
+    const next = Math.min(max, Math.max(0, before + delta));
+    if (next === before) return;
+    e.preventDefault();
+    tabs.scrollLeft = next;
+  }
+  tabs.addEventListener('wheel', wheelToHorizontal, { passive: false });
+
   async function open() {
     if (!dlg.open) dlg.showModal();
     await reload();

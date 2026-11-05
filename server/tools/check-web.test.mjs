@@ -282,6 +282,53 @@ test('面板：顶部先是固定的「维护」，之后按插件生成 tab', a
   )
 })
 
+test('面板：插件多到装不下时，PC 滚轮落在 tab 条上要能横向滚动', async (t) => {
+  const { settings, tabs } = await mount(t)
+  await settings.open()
+
+  tabs.scrollWidth = 500
+  tabs.clientWidth = 200
+  tabs.scrollLeft = 0
+  const wheel = tabs.listeners.wheel?.[0]
+  assert.ok(wheel, 'tab 条没有绑定滚轮事件，PC 上只能靠拖动滚动条')
+
+  let prevented = false
+  const ev = (deltaY) => ({
+    deltaY,
+    deltaX: 0,
+    ctrlKey: false,
+    defaultPrevented: false,
+    preventDefault() {
+      prevented = true
+    },
+  })
+
+  wheel(ev(120))
+  assert.equal(prevented, true, '还能滚的时候要拦住页面滚动')
+  assert.equal(tabs.scrollLeft, 120, '竖向滚轮要变成横向位移')
+
+  tabs.scrollLeft = 290
+  prevented = false
+  wheel(ev(120))
+  assert.equal(tabs.scrollLeft, 300, '不能滚过最大宽度')
+  assert.equal(prevented, true, '最后一段还能滚')
+
+  prevented = false
+  wheel(ev(120))
+  assert.equal(tabs.scrollLeft, 300)
+  assert.equal(prevented, false, '滚到头之后不能再拦页面滚动')
+})
+
+test('面板：tab 条要保留可见的细滚动条，不能把滚动藏掉', () => {
+  const css = readFileSync(join(process.cwd(), 'web/app.css'), 'utf8')
+  const start = css.indexOf('.plg-tabs {')
+  assert.ok(start >= 0)
+  const block = css.slice(start, css.indexOf('}', start) + 1)
+  assert.match(block, /overflow-x:\s*auto/, '横向滚动本身要保留')
+  assert.match(block, /scrollbar-width:\s*thin/, 'PC 上要看得见还能滚')
+  assert.equal(/scrollbar-width:\s*none/.test(block), false, '别再把滚动条藏掉')
+})
+
 test('面板：每个字段都渲染成一行，没有漏项', async (t) => {
   const { settings, body, snapshot } = await mount(t)
   await settings.open()
