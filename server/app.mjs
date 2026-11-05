@@ -20,6 +20,7 @@ import { AccessGuard } from './core/access.mjs';
 import { UpdateChecker } from './core/update.mjs';
 import { buildDiagnostic } from './core/diagnostic.mjs';
 import { maskWebhook, notifyText, reportText, sendWebhook } from './core/notify.mjs';
+import { buildScQueue, MAX_READ_IDS } from './core/sc-queue.mjs';
 import {
   MAX_BIG_SPEND_BATTERY,
   bigSpendText,
@@ -133,6 +134,14 @@ export class App {
      * 页内 toast 照发；配了 webhook 时再外发。1 元 = 10 电池。
      */
     this.bigSpendBattery = 0;
+
+    /**
+     * SC 待读：已读事件 id 集合。懒加载，读失败就当全没读过。
+     *
+     * id 自带房间前缀（`e<roomId>-<seq>`），多房间共用一个集合也不会串。
+     * 它只是清单的投影：不参与统计，删了也只是"重新变成未读"。
+     */
+    this._scReadIds = null;
 
     /** 版本号要最先就位：下面的 UpdateChecker 构造时就要用 */
     this.version = readVersion();
@@ -493,6 +502,64 @@ export class App {
       this.log.warn(`保存配置失败：${err.message}`);
       return false;
     }
+  }
+
+  /* ────────────────────── 醒目留言待读 ────────────────────── */
+
+  _scReadPath() {
+    return join(this.dataDir, 'sc-read.json');
+  }
+
+  _loadScRead() {
+    if (this._scReadIds) return this._scReadIds;
+    try {
+      const raw = JSON.parse(readFileSync(this._scReadPath(), 'utf8'));
+      const ids = Array.isArray(raw?.ids) ? raw.ids.filter((x) => typeof x === 'string' && x.trim()) : [];
+      this._scReadIds = new Set(ids.slice(-MAX_READ_IDS));
+    } catch {
+      // 文件不存在（第一次用）或坏掉都不该影响服务：当作全没读过
+      this._scReadIds = new Set();
+    }
+    return this._scReadIds;
+  }
+
+  /** 给接口用的只读副本：调用方不能直接改内部 Set */
+  scReadIds() {
+    return new Set(this._loadScRead());
+  }
+
+  /**
+   * 标记若干条 SC 为已读，返回真正新增的条数。
+   *
+   * 写盘失败会把内存里的标记回滚并抛 500 —— 只回 ok 不落盘的话，
+   * 下次重启已读状态全丢，用户会以为"点过了又变回未读"。
+   */
+  markScRead(ids) {
+    const set = this._loadScRead();
+    const added = [];
+    for (const id of Array.isArray(ids) ? ids : []) {
+      if (typeof id !== 'string') continue;
+      const key = id.trim();
+      if (!key || set.has(key)) continue;
+      set.add(key);
+      added.push(key);
+    }
+    if (!added.length) return 0;
+
+    // Set 按插入顺序迭代：超过上限就丢最早标记的那些
+    while (set.size > MAX_READ_IDS) set.delete(set.values().next().value);
+    try {
+      mkdirSync(this.dataDir, { recursive: true });
+      const path = this._scReadPath();
+      const tmp = `${path}.tmp`;
+      writeFileSync(tmp, JSON.stringify({ ids: [...set] }, null, 2), 'utf8');
+      renameSync(tmp, path);
+    } catch (err) {
+      for (const id of added) set.delete(id);
+      this.log.warn(`保存醒目留言已读状态失败：${err.message}`);
+      throw { status: 500, code: 'save_failed', message: '保存已读状态失败：写不进 data/sc-read.json' };
+    }
+    return added.length;
   }
 
   /** 演练模式开关。等价于"这台机器今天是否允许真的说话"。 */

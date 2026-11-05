@@ -1701,3 +1701,188 @@ test('付费用户榜：页面上的按钮和弹窗必须真的接到 app.js', (
   assert.match(api, /\/api\/patrons\/alert/, 'api.js 没有大额阈值接口')
 });
 
+/* ══════════════════ SC 待读 ══════════════════ */
+
+const SC_DATA = {
+  days: 30,
+  from: 0,
+  to: 0,
+  scanned: 2,
+  unread: 1,
+  items: [
+    {
+      id: 'e100-3',
+      seq: 3,
+      ts: 1_700_000_010_000,
+      uid: '1',
+      name: '甲',
+      text: '你好呀',
+      money: '¥30',
+      battery: 300,
+      read: false,
+    },
+    {
+      id: 'e100-2',
+      seq: 2,
+      ts: 1_700_000_000_000,
+      uid: '2',
+      name: '乙',
+      text: '看过了',
+      money: '¥50',
+      battery: 500,
+      read: true,
+    },
+  ],
+}
+
+async function mountScQueue(t, { data = SC_DATA, fail = '' } = {}) {
+  installDom()
+  const calls = []
+  globalThis.fetch = async (url, init = {}) => {
+    const path = String(url)
+    calls.push({ path, method: init.method ?? 'GET', body: init.body ? JSON.parse(init.body) : null })
+
+    if (fail && path.startsWith('/api/sc')) throw new Error(fail)
+    if (path.startsWith('/api/sc?')) {
+      return { ok: true, status: 200, json: async () => ({ ok: true, ...data }) }
+    }
+    if (path === '/api/sc/read') {
+      const ids = JSON.parse(init.body).ids
+      return { ok: true, status: 200, json: async () => ({ ok: true, marked: ids.length }) }
+    }
+    return { ok: false, status: 404, json: async () => ({ ok: false, error: { message: '没有这个接口' } }) }
+  }
+  t.after(() => {
+    delete globalThis.fetch
+  })
+
+  const { createScQueue } = await import('../../web/views/sc-queue.js')
+  const dlg = new FakeNode('dialog')
+  dlg.open = false
+  dlg.showModal = () => {
+    dlg.open = true
+  }
+  dlg.close = () => {
+    dlg.open = false
+  }
+  const badge = new FakeNode('span')
+
+  const toasts = []
+  const view = createScQueue({
+    dlg,
+    badge,
+    toast: (text, level = 'info') => toasts.push({ text, level }),
+  })
+  return { view, dlg, badge, toasts, calls }
+}
+
+test('SC 待读：打开就拉最近 30 天，渲染条目并回填徽标', async (t) => {
+  const { view, dlg, badge, calls } = await mountScQueue(t)
+  view.open()
+  assert.equal(dlg.open, true)
+  await new Promise((r) => setImmediate(r))
+
+  assert.match(calls[0].path, /\/api\/sc\?days=30/, '默认看最近 30 天')
+  assert.equal(dlg.all('sc-row').length, 2)
+  assert.match(dlg.textContent, /你好呀/)
+  assert.match(dlg.textContent, /¥30/)
+  assert.equal(badge.textContent, '1', '徽标只数未读')
+  assert.equal(badge.hidden, false)
+})
+
+test('SC 待读：切范围会按新的 days 重新拉', async (t) => {
+  const { view, dlg, calls } = await mountScQueue(t)
+  view.open()
+  await new Promise((r) => setImmediate(r))
+
+  const seven = dlg.all('chip').find((c) => c.textContent === '最近 7 天')
+  seven.listeners.click[0]()
+  await new Promise((r) => setImmediate(r))
+
+  assert.match(calls.at(-1).path, /days=7/)
+})
+
+test('SC 待读：点单条已读只提交这一条的 id，徽标跟着降', async (t) => {
+  const { view, dlg, badge, calls } = await mountScQueue(t)
+  view.open()
+  await new Promise((r) => setImmediate(r))
+
+  dlg.all('sc-mark')[0].listeners.click[0]()
+  await new Promise((r) => setImmediate(r))
+  await new Promise((r) => setImmediate(r))
+
+  const post = calls.find((c) => c.method === 'POST')
+  assert.deepEqual(post.body, { ids: ['e100-3'] })
+  assert.equal(badge.hidden, true, '全读完了徽标要收起来')
+  assert.match(dlg.all('sc-row')[0]._cls(), /is-read/)
+})
+
+test('SC 待读：全部已读把剩下的 id 一次提交；没有未读时只提示', async (t) => {
+  const { view, dlg, calls, toasts } = await mountScQueue(t, {
+    data: {
+      ...SC_DATA,
+      unread: 2,
+      items: SC_DATA.items.map((it) => ({ ...it, read: false })),
+    },
+  })
+  view.open()
+  await new Promise((r) => setImmediate(r))
+
+  dlg.all('btn').find((b) => b.textContent === '全部已读').listeners.click[0]()
+  await new Promise((r) => setImmediate(r))
+  const post = calls.find((c) => c.method === 'POST')
+  assert.deepEqual(post.body.ids.sort(), ['e100-2', 'e100-3'])
+
+  await new Promise((r) => setImmediate(r))
+  dlg.all('btn').find((b) => b.textContent === '全部已读').listeners.click[0]()
+  await new Promise((r) => setImmediate(r))
+  assert.match(toasts.at(-1).text, /没有未读/)
+})
+
+test('SC 待读：面板关着时新 SC 也要抬徽标，打开后以服务端未读为准', async (t) => {
+  const { view, badge } = await mountScQueue(t)
+  view.bump(2)
+  assert.equal(badge.textContent, '2')
+  assert.equal(badge.hidden, false)
+
+  view.open()
+  await new Promise((r) => setImmediate(r))
+  assert.equal(badge.textContent, '1', '打开后不能把已读的旧 SC 又算成未读')
+})
+
+test('SC 待读：空数据给空状态，不抛也不留白', async (t) => {
+  const { view, dlg } = await mountScQueue(t, {
+    data: { days: 30, from: 0, to: 0, scanned: 0, unread: 0, items: [] },
+  })
+  view.open()
+  await new Promise((r) => setImmediate(r))
+
+  assert.match(dlg.textContent, /还没有醒目留言/)
+  assert.match(dlg.textContent, /共 0 条/)
+})
+
+test('SC 待读：接口失败只提示，不把面板打崩', async (t) => {
+  const { view, dlg, toasts } = await mountScQueue(t, { fail: '日志读不出来' })
+  view.open()
+  await new Promise((r) => setImmediate(r))
+
+  assert.match(toasts.at(-1).text, /醒目留言清单打不开/)
+  assert.equal(dlg.open, true)
+})
+
+test('SC 待读：按钮、弹窗和 api 必须真的接到 app.js', () => {
+  const html = readFileSync(join(process.cwd(), 'web/index.html'), 'utf8')
+  const app = readFileSync(join(process.cwd(), 'web/app.js'), 'utf8')
+  const apiSrc = readFileSync(join(process.cwd(), 'web/core/api.js'), 'utf8')
+
+  assert.ok(html.includes('id="btn-sc"'), 'index.html 里没有 SC 待读按钮')
+  assert.ok(html.includes('id="sc-badge"'), 'index.html 里没有未读徽标')
+  assert.ok(html.includes('id="dlg-sc"'), 'index.html 里没有 SC 待读弹窗')
+  assert.match(app, /createScQueue\s*\(/, 'app.js 没有创建 SC 待读面板')
+  assert.match(app, /scQueue\.open\(\)/, '按钮没接到 open()')
+  assert.match(app, /scQueue\.reset\(\)/, '换房间时要重置未读徽标')
+  assert.match(app, /scQueue\.bump\(/, '实时事件要把徽标抬起来')
+  assert.match(apiSrc, /\/api\/sc\?days=/, 'api.js 没有 SC 清单接口')
+  assert.match(apiSrc, /\/api\/sc\/read/, 'api.js 没有标记已读接口')
+})
+

@@ -166,6 +166,9 @@ export const api = {
     request(`/api/patrons?days=${days}&limit=${limit}`, { timeout: 60000 }),
   saveBigSpend: (battery) =>
     request('/api/patrons/alert', { method: 'POST', body: { battery } }),
+  /** SC 待读清单：同样读全量日志，超时放宽到 60 秒 */
+  scQueue: ({ days = 30 } = {}) => request(`/api/sc?days=${days}`, { timeout: 60000 }),
+  markScRead: (ids) => request('/api/sc/read', { method: 'POST', body: { ids } }),
   savePluginConfig: (id, patch) =>
     request(`/api/plugins/${encodeURIComponent(id)}/config`, { method: 'POST', body: patch }),
   resetPluginConfig: (id) =>

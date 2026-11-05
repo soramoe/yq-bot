@@ -268,6 +268,29 @@ input {
   cursor: not-allowed;
 }
 
+/* 「SC 待读」上的未读数：先让人看见有几条，再决定要不要点开 */
+.btn-sc {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.badge {
+  display: inline-block;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  border-radius: 8px;
+  background: var(--bad);
+  color: #fff;
+  font-size: 10px;
+  line-height: 16px;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+.badge[hidden] {
+  display: none;
+}
+
 /* ══════════════════════ 主区 ══════════════════════ */
 
 .main {
@@ -1939,4 +1962,117 @@ dialog#dlg-reports {
   .patron-alert {
     flex-wrap: wrap;
   }
+}
+
+/* ══════════════════════ SC 待读 ══════════════════════ */
+
+.sc-wrap {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+.sc-head {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: var(--s2);
+  padding: var(--s3) var(--s4);
+  border-bottom: 1px solid var(--line);
+}
+.sc-head h4 {
+  margin: 0;
+  font-size: var(--fs-md);
+  font-weight: 500;
+}
+.sc-sub {
+  color: var(--text-3);
+  font-size: var(--fs-xs);
+}
+.sc-spacer {
+  flex: 1 1 auto;
+}
+
+.sc-chips {
+  flex: none;
+  display: flex;
+  gap: var(--s1);
+  padding: var(--s2) var(--s4);
+  border-bottom: 1px solid var(--line-soft);
+}
+
+.sc-summary {
+  flex: none;
+  display: flex;
+  align-items: baseline;
+  gap: var(--s3);
+  padding: var(--s3) var(--s4);
+  border-bottom: 1px solid var(--line-soft);
+}
+.sc-count {
+  color: var(--warn);
+  font-size: var(--fs-md);
+  font-variant-numeric: tabular-nums;
+}
+.sc-total {
+  color: var(--text-3);
+  font-size: var(--fs-xs);
+}
+
+.sc-list {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+}
+.sc-row {
+  padding: var(--s3) var(--s4);
+  border-bottom: 1px solid var(--line-soft);
+}
+.sc-row.is-read {
+  opacity: 0.55;
+}
+.sc-row-head {
+  display: flex;
+  align-items: center;
+  gap: var(--s2);
+  font-size: var(--fs-sm);
+}
+.sc-row-head b {
+  font-weight: 500;
+}
+.sc-money {
+  color: var(--accent);
+  font-variant-numeric: tabular-nums;
+}
+.sc-time {
+  color: var(--text-3);
+  font-size: var(--fs-xs);
+  font-variant-numeric: tabular-nums;
+}
+.sc-state {
+  color: var(--text-3);
+  font-size: var(--fs-xs);
+}
+.sc-row.is-read .sc-state {
+  color: var(--text-3);
+}
+.sc-mark {
+  height: 24px;
+  padding: 0 var(--s2);
+  font-size: var(--fs-xs);
+}
+.sc-text {
+  margin: var(--s1) 0 0;
+  color: var(--text-2);
+  font-size: var(--fs-sm);
+  line-height: var(--lh);
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+.sc-empty-sub {
+  padding: 0 var(--s4) var(--s4);
+  color: var(--text-3);
+  font-size: var(--fs-xs);
+  text-align: center;
 }

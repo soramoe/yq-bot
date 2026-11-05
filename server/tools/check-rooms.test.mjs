@@ -1417,3 +1417,84 @@ test('接口：POST /api/patrons/alert 校验类型并保存', async (t) => {
   assert.equal(JSON.parse(ok.body).battery, 10_000)
   assert.equal(JSON.parse(readFileSync(join(dataDir, 'app.json'), 'utf8')).bigSpendBattery, 10_000)
 })
+
+test('接口：GET /api/sc 返回 SC 清单；房间没起来时明确 503', async (t) => {
+  const { app: idle } = makeApp(t, { rooms: ['100'] })
+  await idle.start()
+  const idleRoutes = buildRoutes(idle)
+  const idleRes = fakeRes()
+  await idleRoutes.match('GET', '/api/sc').handler({
+    res: idleRes,
+    url: new URL('http://x/api/sc?days=30'),
+    app: idle,
+  })
+  assert.equal(idleRes.statusCode, 503)
+  assert.match(idleRes.body, /房间还没启动/)
+
+  const { app, dataDir } = makeApp(t, { rooms: ['100'] })
+  await app.start()
+  app.rooms.get('100').runner.log_ = {
+    readAllAsync: async () => [
+      { id: 'e100-1', seq: 1, ts: 1_700_000_000_000, type: 'SUPER_CHAT', payload: { uid: '1', uname: '甲', text: '第一条', yuan: 30 } },
+      { id: 'e100-2', seq: 2, ts: 1_700_000_005_000, type: 'SUPER_CHAT', payload: { uid: '2', uname: '乙', text: '第二条', battery: 500 } },
+    ],
+  }
+  writeFileSync(join(dataDir, 'sc-read.json'), JSON.stringify({ ids: ['e100-1'] }))
+
+  const routes = buildRoutes(app)
+  const res = fakeRes()
+  await routes.match('GET', '/api/sc').handler({
+    res,
+    url: new URL('http://x/api/sc?days=0'),
+    app,
+  })
+  const data = JSON.parse(res.body)
+  assert.equal(data.ok, true)
+  assert.equal(data.items.length, 2)
+  assert.equal(data.items[0].name, '乙', '新的在前')
+  assert.equal(data.items[0].read, false)
+  assert.equal(data.items[1].read, true, '落盘的已读 id 要生效')
+  assert.equal(data.unread, 1)
+})
+
+test('接口：POST /api/sc/read 校验 id 并落盘，重复标记不重复计数', async (t) => {
+  const { app, dataDir } = makeApp(t, { rooms: ['100'] })
+  await app.start()
+  const routes = buildRoutes(app)
+  const { Readable } = await import('node:stream')
+  const post = async (body) => {
+    const res = fakeRes()
+    const req = Readable.from([Buffer.from(JSON.stringify(body))])
+    req.headers = { 'content-type': 'application/json' }
+    await routes.match('POST', '/api/sc/read').handler({
+      req,
+      res,
+      url: new URL('http://x/api/sc/read'),
+      app,
+    })
+    return res
+  }
+
+  for (const bad of [
+    { ids: 'e100-1' },
+    { ids: [] },
+    { ids: ['not-an-event-id'] },
+    { ids: Array.from({ length: 501 }, (_, i) => `e100-${i + 1}`) },
+  ]) {
+    const res = await post(bad)
+    assert.equal(res.statusCode, 400, `坏请求应当 400：${JSON.stringify(bad).slice(0, 40)}`)
+  }
+
+  const ok = await post({ ids: ['e100-1', ' e100-2 '] })
+  assert.equal(ok.statusCode, 200)
+  assert.equal(JSON.parse(ok.body).marked, 2)
+  const saved = JSON.parse(readFileSync(join(dataDir, 'sc-read.json'), 'utf8'))
+  assert.deepEqual(saved.ids.sort(), ['e100-1', 'e100-2'])
+
+  const again = await post({ ids: ['e100-1'] })
+  assert.equal(JSON.parse(again.body).marked, 0, '已经读过的不该再算新增')
+
+  // 新 App 读同一份数据目录：已读状态要还在（只构造，不启动，避免再连一次）
+  const app2 = new App({ dataDir, roomId: '100', dryRun: true, log: SILENT })
+  assert.equal(app2.scReadIds().has('e100-2'), true, '已读状态必须跨进程保留')
+})

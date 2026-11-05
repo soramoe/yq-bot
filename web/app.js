@@ -19,6 +19,7 @@ import { createSettings } from './views/settings.js';
 import { createStream } from './views/stream.js';
 import { createNotifyConfig } from './views/notify-config.js';
 import { createPatrons } from './views/patrons.js';
+import { createScQueue } from './views/sc-queue.js';
 import { buildRoomRows, summarizeRooms } from './views/room-overview.js';
 import { installPwa } from './core/pwa.js';
 
@@ -34,8 +35,11 @@ const dom = {
   btnPlugins: $('#btn-plugins'),
   btnReports: $('#btn-reports'),
   btnPatrons: $('#btn-patrons'),
+  btnSc: $('#btn-sc'),
+  scBadge: $('#sc-badge'),
   dlgReports: $('#dlg-reports'),
   dlgPatrons: $('#dlg-patrons'),
+  dlgSc: $('#dlg-sc'),
   stats: $('#stats'),
   stream: $('#stream'),
   filters: $('#filters'),
@@ -81,6 +85,9 @@ const reports = createReports({ dlg: dom.dlgReports, toast });
 // 付费用户榜读的是当前房间的全量日志，和战报同源；打开时才算，不占常驻请求
 const patrons = createPatrons({ dlg: dom.dlgPatrons, toast });
 
+// SC 待读：和榜单一样平时不拉，打开才读日志；徽标靠实时事件自己抬
+const scQueue = createScQueue({ dlg: dom.dlgSc, badge: dom.scBadge, toast });
+
 // 提醒 webhook 的设置面板在「房间总览」里：它的作用域就是"所有房间"，
 // 单独开一页反而会让人以为只对当前这间生效
 const notifyConfig = createNotifyConfig({
@@ -99,6 +106,10 @@ dom.btnReports?.addEventListener('click', () => {
 dom.btnPatrons?.addEventListener('click', () => {
   // load 内部自己 toast 失败，这里只负责把面板打开
   patrons.open();
+});
+
+dom.btnSc?.addEventListener('click', () => {
+  scQueue.open();
 });
 
 const state = {
@@ -320,7 +331,7 @@ function handle(msg) {
     }
 
     case 'event':
-      ingest([msg.data]);
+      ingest([msg.data], { bump: true });
       break;
 
     case 'stats':
@@ -351,6 +362,8 @@ function handle(msg) {
       // 否则上一间的场次卡片会一直挂着，而数字本身看起来完全正常
       reports.refreshIfOpen();
       patrons.refreshIfOpen();
+      // 未读是分房间的：切过去还挂着上一间的徽标会让人以为新房间有 SC
+      scQueue.reset();
       refreshStatus();
       // 换房间：服务端缓冲已经换成新房间的，但 backlog 只在建连时发，
       // 不重连就永远缺着新房间开头那一段
@@ -363,9 +376,15 @@ function handle(msg) {
   }
 }
 
-function ingest(list) {
+function ingest(list, { bump = false } = {}) {
   const added = store.ingest(list);
-  if (added.length) stream.append(added);
+  if (!added.length) return;
+  stream.append(added);
+  // 新 SC 不打开面板也该看见：补发/backlog 不算"新"，避免把已读的旧 SC 又顶成未读
+  if (bump) {
+    const scCount = added.filter((e) => e?.type === 'SUPER_CHAT').length;
+    if (scCount) scQueue.bump(scCount);
+  }
 }
 
 /* ══════════════════════ 交互 ══════════════════════ */

@@ -15,6 +15,7 @@ import { buildReportHtml, reportFileName } from '../core/export-report.mjs';
 import { buildTimeline, normalizeStep } from '../core/timeline.mjs';
 import { replay } from '../core/sandbox.mjs';
 import { buildPatrons } from '../core/patrons.mjs';
+import { buildScQueue } from '../core/sc-queue.mjs';
 
 /**
  * @param {import('../app.mjs').App} app
@@ -587,6 +588,39 @@ export function buildRoutes(app) {
     }
     const battery = app.setBigSpendBattery(body.battery);
     sendJson(res, { ok: true, battery });
+  });
+
+  /* 醒目留言待读清单。
+     消息本体来自日志重放（和战报/榜单同源），"已读"单独落盘在
+     data/sc-read.json —— 它只是清单的投影，丢了顶多重新标一遍。 */
+  r.get('/api/sc', async ({ res, url }) => {
+    if (!app.runner?.log_) {
+      sendError(res, 503, 'not_ready', '房间还没启动，读不到日志');
+      return;
+    }
+
+    const daysParam = url.searchParams.get('days');
+    const days = daysParam === null ? 30 : Math.max(0, Math.floor(Number(daysParam) || 0));
+    const all = await app.runner.log_.readAllAsync();
+    const data = buildScQueue(all, { days, readIds: app.scReadIds() });
+    sendJson(res, { ok: true, ...data });
+  });
+
+  r.post('/api/sc/read', async ({ req, res }) => {
+    const body = await readJson(req);
+    const raw = body?.ids;
+    const ids = Array.isArray(raw) ? raw.map((id) => (typeof id === 'string' ? id.trim() : id)) : raw;
+    const valid =
+      Array.isArray(ids) &&
+      ids.length >= 1 &&
+      ids.length <= 500 &&
+      ids.every((id) => typeof id === 'string' && /^e[0-9A-Za-z_-]{1,64}-\d{1,12}$/.test(id));
+    if (!valid) {
+      sendError(res, 400, 'bad_request', '需要 { "ids": ["e100-1"] }，一次 1..500 条');
+      return;
+    }
+    const marked = app.markScRead(ids);
+    sendJson(res, { ok: true, marked });
   });
 
   return r;
