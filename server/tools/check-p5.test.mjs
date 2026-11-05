@@ -564,8 +564,8 @@ test('更新：镜像落后但源有新版本时，检查回落源，下载也�
     download: 'https://github.com/o/r/releases/download/v0.2.4/yuyue3-0.2.4.tar.gz',
   };
   const sourceManifest = {
-    version: '1.0.2',
-    download: 'https://source.example.com/yuyue3-1.0.2.tar.gz',
+    version: '99.0.0',
+    download: 'https://source.example.com/yuyue3-99.0.0.tar.gz',
     sha256: sha,
     size: pkg.length,
   };
@@ -600,7 +600,7 @@ test('更新：镜像落后但源有新版本时，检查回落源，下载也�
 
   const chk = await app.checkUpdate({ force: true });
   assert.equal(chk.via, 'source');
-  assert.equal(chk.latest, '1.0.2');
+  assert.equal(chk.latest, '99.0.0');
   assert.equal(chk.hasUpdate, true);
   assert.deepEqual(calls, [
     'https://mirror.example.com/yq/latest.json',
