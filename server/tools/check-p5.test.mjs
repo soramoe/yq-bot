@@ -835,3 +835,23 @@ test('接线：设置更新源会落盘，重启后还在；非法地址被拒',
   // 空值合法：等于"不要检查更新"
   assert.equal(app.setUpdateUrl('').updateUrl, '');
 });
+
+test('更新：全新安装自带发行版更新源与镜像，用户清空后不能又被塞回来', (t) => {
+  const dir = tmp(t);
+  const fresh = new App({ dataDir: dir, roomId: '1' });
+  assert.equal(
+    fresh.updateUrl,
+    'https://github.com/soramoe/yq-bot/releases/latest/download/latest.json',
+    '新装应该开箱知道去哪儿检查更新',
+  );
+  assert.equal(
+    fresh.updateMirror,
+    'https://pub-1c052ae1726e4964913fac13a4cbd08f.r2.dev/yq',
+    '新装应该默认走国内镜像',
+  );
+
+  writeFileSync(join(dir, 'app.json'), JSON.stringify({ updateUrl: '', updateMirror: '' }, null, 2));
+  const later = new App({ dataDir: dir, roomId: '1' });
+  assert.equal(later.updateUrl, '', '用户主动清空更新源就表示不检查，不能每次启动又恢复默认');
+  assert.equal(later.updateMirror, '');
+});

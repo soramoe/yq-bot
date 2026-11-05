@@ -80,6 +80,16 @@ const MAX_BUFFER = 5000;
  */
 const MAX_ROOMS = 10;
 
+/**
+ * 发行版自带的更新源与镜像。
+ *
+ * 只用于**全新安装**（data/app.json 还不存在）：开箱就能检查更新，
+ * 不用让用户先自己去翻文档填地址。一旦 app.json 存在，就以文件为准 ——
+ * 用户主动清空 = 不想检查，不能每次启动又被塞回来。
+ */
+const DEFAULT_UPDATE_URL = 'https://github.com/soramoe/yq-bot/releases/latest/download/latest.json';
+const DEFAULT_UPDATE_MIRROR = 'https://pub-1c052ae1726e4964913fac13a4cbd08f.r2.dev/yq';
+
 /** 房间号：纯数字，1–12 位。前后端共用这一条判断 */
 export function normalizeRoomId(v) {
   const s = String(v ?? '').trim();
@@ -103,6 +113,8 @@ export class App {
    */
   constructor({ dataDir, roomId, dryRun = true, pluginsDir = null, log = SILENT_LOG, createRunner = null, createObs = null, fetchImpl = null, fetchRoom = fetchRoomInfo, fetchRank = fetchOnlineRank, resolveRoom = resolveRoomId, fetchPkBattle: fetchPkBattleImpl = fetchPkBattle, pkBriefGapMs = 2500 }) {
     this.dataDir = dataDir;
+    /** 全新安装：还没有 data/app.json，说明是第一次启动 */
+    this._freshInstall = !existsSync(join(dataDir, 'app.json'));
     /** 安装目录（data/ 的上一级）：更新脚本用它替换代码 */
     this.root = resolve(dataDir, '..');
     this.pluginsDir = pluginsDir;
@@ -155,14 +167,14 @@ export class App {
      * 存在这里而不是写死在 core/update.mjs：它属于"这台机器的设置"，
      * 和房间号、演练模式一样会随 app.json 落盘。
      */
-    this.updateUrl = '';
+    this.updateUrl = this._freshInstall ? DEFAULT_UPDATE_URL : '';
 
     /**
      * 更新镜像基地址（可空）。有值时检查/下载优先走镜像：
      * `<mirror>/latest.json` 与 `<mirror>/<包文件名>`。
      * GitHub 在国内经常直连不通，镜像是不挂代理也能更新的办法。
      */
-    this.updateMirror = '';
+    this.updateMirror = this._freshInstall ? DEFAULT_UPDATE_MIRROR : '';
 
     /** 已下载待安装的更新包（只存在内存里；文件在 data/updates/） */
     this._updateDownload = null;

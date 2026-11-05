@@ -222,7 +222,7 @@ npm run login              # 独立扫码登录（127.0.0.1:8898；服务在跑�
 npm run probe   <房间号>    # 探针：连上房间，事件逐条打出来
 npm run smoke   <房间号>    # 端到端：收一段再从日志重放，比对统计
 npm run demo    <房间号>    # 演练：真实房间 + 真实进场，看欢迎语会说什么（不真的发）
-npm run check              # 全部自检（853 项）
+npm run check              # 全部自检（854 项）
 ```
 
 `demo` 是安全的：dryRun 打开后不会真的发弹幕，可以拿任何直播间试。
@@ -504,7 +504,7 @@ npm run login        # 扫码登录（127.0.0.1:8898，终端也会打印二维�
 npm run probe  <房间号> [秒]   # 探针：连上真实房间，把事件逐条打出来
 npm run smoke  <房间号> [秒]   # 端到端：收一段弹幕，再从日志重放比对统计
 
-npm run check        # 全部自检（853 项，全离线）
+npm run check        # 全部自检（854 项，全离线）
 npm run check:p0     # 只跑地基
 npm run check:qr     # 只跑二维码编码器
 npm run check:login  # 只跑登录链路
@@ -548,6 +548,10 @@ git push origin main --tags
 `npm ci --omit=dev`（把唯一的依赖 `ws` 一起打进去）→ 打成
 `yuyue3-<version>.tar.gz`（排除 `data/`、`.git/`、`.github/`）→ 生成
 `latest.json` → 创建 Release 并上传两个文件。
+
+全新安装（还没有 `data/app.json`）会默认把更新源指向上面的 GitHub Release，
+镜像指向发行版自带的 R2 地址，开箱就能检查更新。用户改过或主动清空后以
+`data/app.json` 为准，不会每次启动又塞回默认值。
 
 更新源填这个固定地址（`<owner>` / `<repo>` 换成自己的）：
 
