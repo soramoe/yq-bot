@@ -2957,3 +2957,24 @@ test('PK 开场：检测到新一场就分段播对面情报，同一场只播�
   await app.pollPk()
   assert.equal(texts().length, 16, '没有 gate 的那次不能把这场吞掉')
 })
+test('账号：换号后重建房间连接，不重启进程', async (t) => {
+  const { app } = await makeApp(t, { rooms: ['100', '200'], activeRoomId: '100' })
+  await app.start()
+
+  const before = app.rooms.get('100').runner
+  const notices = []
+  const resets = []
+  app.subscribe((msg) => {
+    if (msg.type === 'notice') notices.push(msg.data?.text ?? '')
+    if (msg.type === 'reset') resets.push(msg)
+  })
+
+  const status = await app.rebindAccount({ uname: '新号', uid: 42 })
+  assert.equal(status.app, 'yuyue3')
+  assert.equal(app.activeKey, '100', '换号后还停在原来那间')
+  assert.equal(app.rooms.size, 2)
+  assert.notEqual(app.rooms.get('100').runner, before, '换号必须换新的 runner')
+  assert.equal(before.stops, 1, '旧连接要被停掉')
+  assert.ok(notices.some((x) => x.includes('新号')), '页面上要说清楚换了哪个号')
+  assert.equal(resets.length, 1, '换号后页面要清一次，避免旧事件接在新连接后面')
+})

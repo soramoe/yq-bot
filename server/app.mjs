@@ -1249,6 +1249,42 @@ export class App {
   }
 
   /**
+   * 换号后重建房间连接，不重启进程。
+   *
+   * 凭证是建房间时读进 runner 的，登录页把新的 auth.json 写完后只能
+   * 把房间重开一遍；HTTP 服务和 WS 订阅者都不动，页面只会收到一次 reset。
+   */
+  async rebindAccount(account = null) {
+    const keys = [...this.rooms.keys()];
+    const wasActive = this.activeKey;
+    this.log.info(`[AUTH] 重建 ${keys.length} 个房间的连接`);
+    for (const room of this.rooms.values()) {
+      await room.runner?.stop().catch(() => {});
+    }
+    this.rooms.clear();
+    this.runner = null;
+    this.activeKey = '';
+
+    const wanted = keys.length ? keys : [String(this.roomId)];
+    for (const key of wanted) {
+      await this._bootRoom(key);
+    }
+    const remembered = wanted.includes(wasActive) ? wasActive : wanted[0];
+    await this._activate(remembered, { silent: true });
+
+    this._emit({ type: 'reset', data: { roomId: String(this.roomId) } });
+    this._emit({
+      type: 'notice',
+      data: {
+        level: 'success',
+        text: `账号已切换为 ${account?.uname || account?.uid || '新账号'}，房间连接已重开`,
+      },
+    });
+    this._pushStats();
+    return this.status();
+  }
+
+  /**
    * 切到某个房间；还没在跑就先开起来。
    *
    * 与二代最大的不同：**不停止旧房间**。停掉再起的话，回来时那一场

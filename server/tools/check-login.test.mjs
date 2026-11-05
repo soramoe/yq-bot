@@ -298,7 +298,7 @@ test('HTTP：超时抛 BiliError 且带 ETIMEDOUT，不能挂死', async () => {
 /* ---------------- 登录服务端 ---------------- */
 
 /** 起一个挂了登录处理器的服务，返回 { base, auth, close } */
-async function startTestServer(overrides = {}) {
+async function startTestServer(overrides = {}, { base = '', onLogin = null } = {}) {
   const dir = tmpDataDir();
   const auth = new AuthStore({ dataDir: dir });
 
@@ -315,7 +315,7 @@ async function startTestServer(overrides = {}) {
     ...overrides,
   };
 
-  handlerRef = createLoginHandler({ auth, host: '127.0.0.1', port, deps });
+  handlerRef = createLoginHandler({ auth, host: '127.0.0.1', port, deps, base, onLogin });
 
   return {
     base: `http://127.0.0.1:${port}`,
@@ -463,6 +463,40 @@ test('登录服务：不存在的路径返回 404 而不是崩掉', async () => 
   try {
     const res = await fetch(`${s.base}/nope`);
     assert.equal(res.status, 404);
+  } finally {
+    await s.close();
+  }
+});
+
+test('登录服务：可以挂在主服务 /login 下，登录成功会回调重连', async () => {
+  const calls = [];
+  const s = await startTestServer(
+    {
+      pollQrcode: async () => ({ status: 'confirmed', cookie: FAKE_COOKIE }),
+    },
+    { base: '/login', onLogin: async (account) => calls.push(account) },
+  );
+  try {
+    const page = await fetch(`${s.base}/login`);
+    assert.equal(page.status, 200);
+    const html = await page.text();
+    assert.match(html, /BASE = '\/login'/, '页面请求要带 /login 前缀');
+    assert.match(html, /BASE \+ '\/api\/qr'/, '轮询和申请二维码都不能落到主服务的 /api 上');
+
+    const qr = await fetch(`${s.base}/login/api/qr`, { method: 'POST' });
+    const qrBody = await qr.json();
+    assert.equal(qrBody.ok, true);
+    assert.equal(qrBody.key, 'key-1');
+
+    const poll = await fetch(`${s.base}/login/api/qr/poll?key=key-1`);
+    const pollBody = await poll.json();
+    assert.equal(pollBody.status, 'confirmed');
+    assert.equal(s.auth.loggedIn, true);
+    assert.equal(calls.length, 1, '登录成功必须通知主服务重连');
+    assert.equal(calls[0].uname, '渔月崽');
+
+    const auth = await (await fetch(`${s.base}/login/api/auth`)).json();
+    assert.equal(auth.loggedIn, true);
   } finally {
     await s.close();
   }

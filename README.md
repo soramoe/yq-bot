@@ -214,11 +214,11 @@ plugins/command/               弹幕指令：#帮助 / #本场 / #我来过（�
 npm start                  # 起观测台（页面在 http://127.0.0.1:8900）
 npm start -- --room 12345  # 指定房间
 npm start -- --live        # 真实发送（不加就是演练，不真的发弹幕）
-npm run login              # 扫码登录（127.0.0.1:8898，终端也会打印二维码）
+npm run login              # 独立扫码登录（127.0.0.1:8898；服务在跑时用 8900/login）
 npm run probe   <房间号>    # 探针：连上房间，事件逐条打出来
 npm run smoke   <房间号>    # 端到端：收一段再从日志重放，比对统计
 npm run demo    <房间号>    # 演练：真实房间 + 真实进场，看欢迎语会说什么（不真的发）
-npm run check              # 全部自检（820 项）
+npm run check              # 全部自检（822 项）
 ```
 
 `demo` 是安全的：dryRun 打开后不会真的发弹幕，可以拿任何直播间试。
@@ -249,6 +249,17 @@ scripts\uninstall-autostart.bat 卸载上面两个任务
 `scripts\README.md`。原来的 `E:\bot-ops` 脚本与 `E:\yuyue3` 目录联接
 只作为旧入口保留，新脚本不再依赖它们。
 
+### 登录与换号
+
+服务在跑时不用另开登录页：打开 `http://127.0.0.1:8900/login`，或在
+「设置 → 维护 → 账号」里点「切换账号」。扫码成功后服务会写入
+`data/auth.json`，停掉旧连接、按原来的房间列表重新建连，**不需要重启进程**；
+页面会收到一次 `reset`，旧事件不会接在新连接后面。
+
+`npm run login` 仍然保留，用于服务没起、或端口被占时单独扫码；
+它和主服务共用同一份 `data/auth.json`。
+
+
 > 产品显示名是「渔情 B 站直播助手机器人」，但目录名仍是 `渔月崽三代`，
 > B 站登录账号仍叫「渔月崽」——后两者是历史标识，改名不影响开播。
 
@@ -261,7 +272,7 @@ server/bili/login.mjs          二维码申请、轮询、账号校验
 server/qr/encode.mjs           二维码编码（字节模式 / M 级 / 版本 1–10）
 server/qr/svg.mjs              渲染成 SVG 或终端半块字符
 server/auth.mjs                凭证持久化（原子写）
-server/login-server.mjs        本地登录服务（127.0.0.1:8898）
+server/login-server.mjs        登录服务（可独立 127.0.0.1:8898，也挂在主服务 /login）
 server/login/page.mjs          登录页（自包含，CSP nonce）
 ```
 
@@ -489,7 +500,7 @@ npm run login        # 扫码登录（127.0.0.1:8898，终端也会打印二维�
 npm run probe  <房间号> [秒]   # 探针：连上真实房间，把事件逐条打出来
 npm run smoke  <房间号> [秒]   # 端到端：收一段弹幕，再从日志重放比对统计
 
-npm run check        # 全部自检（820 项，全离线）
+npm run check        # 全部自检（822 项，全离线）
 npm run check:p0     # 只跑地基
 npm run check:qr     # 只跑二维码编码器
 npm run check:login  # 只跑登录链路

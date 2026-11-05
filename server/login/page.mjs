@@ -11,7 +11,7 @@
 /**
  * @param {string} nonce CSP 用的 nonce
  */
-export function renderLoginPage(nonce) {
+export function renderLoginPage(nonce, { base = '' } = {}) {
   const html = `<!doctype html>
 <html lang="zh-CN">
 <head>
@@ -187,6 +187,7 @@ export function renderLoginPage(nonce) {
 
 <script nonce="${nonce}">
 (function () {
+  var BASE = '${base}';
   var $ = function (id) { return document.getElementById(id); };
   var qrBox = $('qr'), statusEl = $('status'), retryBtn = $('retry');
   var overlay = $('overlay'), accountEl = $('account');
@@ -221,7 +222,7 @@ export function renderLoginPage(nonce) {
     setStatus('正在获取二维码');
 
     try {
-      var res = await fetch('/api/qr', { method: 'POST' });
+      var res = await fetch(BASE + '/api/qr', { method: 'POST' });
       var data = await res.json();
 
       if (!data.ok) {
@@ -245,7 +246,7 @@ export function renderLoginPage(nonce) {
   async function poll() {
     if (stopped || !key) return;
     try {
-      var res = await fetch('/api/qr/poll?key=' + encodeURIComponent(key));
+      var res = await fetch(BASE + '/api/qr/poll?key=' + encodeURIComponent(key));
       var data = await res.json();
 
       if (data.status === 'confirmed') {
@@ -305,7 +306,7 @@ export function renderLoginPage(nonce) {
   // 已登录就别再弹二维码了 —— 用户打开页面多半只是想确认"我登的是哪个号"
   async function init() {
     try {
-      var res = await fetch('/api/auth');
+      var res = await fetch(BASE + '/api/auth');
       var data = await res.json();
       if (data.loggedIn) {
         showAccount(data);

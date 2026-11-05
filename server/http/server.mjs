@@ -14,6 +14,8 @@ import { attachWebSocket } from './ws.mjs';
 import { serveStatic } from './static.mjs';
 import { isLocalHost, securityHeaders, sendError, sendJson } from './json.mjs';
 import { guardWrite } from './write-guard.mjs';
+import { AuthStore } from '../auth.mjs';
+import { createLoginHandler } from '../login-server.mjs';
 
 /**
  * @param {object} opts
@@ -24,6 +26,19 @@ import { guardWrite } from './write-guard.mjs';
  */
 export function createHttpServer({ app, webRoot, port, log = console }) {
   const router = buildRoutes(app);
+
+  /**
+   * 登录页挂在主服务下（`/login`），不再是单独的 8898 进程。
+   * 扫码成功后的回调会重建房间连接 —— 换号不用重启服务。
+   */
+  const loginHandler = createLoginHandler({
+    auth: new AuthStore({ dataDir: app.dataDir }).load(),
+    host: '127.0.0.1',
+    port,
+    base: '/login',
+    log: (msg) => log.info?.(msg),
+    onLogin: (account) => app.rebindAccount(account),
+  });
 
   const server = createServer(async (req, res) => {
     const started = process.hrtime.bigint();
@@ -43,7 +58,14 @@ export function createHttpServer({ app, webRoot, port, log = console }) {
         return;
       }
 
-      // 2) 接口
+      // 2) 登录页与登录接口（本机扫码，不走写闸门：它自己的 Host 校验更窄）
+      if (url.pathname === '/login' || url.pathname.startsWith('/login/')) {
+        await loginHandler(req, res);
+        accessLog(log, req, res, url, started);
+        return;
+      }
+
+      // 3) 接口
       const hit = router.match(req.method, url.pathname);
       if (hit?.handler) {
         // 写操作的统一闸门：Origin + 访问口令。

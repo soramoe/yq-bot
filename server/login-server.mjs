@@ -41,7 +41,7 @@ const MIN_QR_INTERVAL = 1500;
  * @param {{auth:AuthStore, host:string, port:number, log?:Function,
  *          deps?:{requestQrcode?:Function, pollQrcode?:Function, verifyCookie?:Function}}} opts
  */
-export function createLoginHandler({ auth, host, port, log = () => {}, deps = {} }) {
+export function createLoginHandler({ auth, host, port, log = () => {}, deps = {}, base = '', onLogin = null }) {
   const api = {
     requestQrcode,
     pollQrcode,
@@ -70,12 +70,13 @@ export function createLoginHandler({ auth, host, port, log = () => {}, deps = {}
     return shared;
   }
 
+  const pagePath = base || '/';
   const routes = [
-    ['GET', '/', handlePage],
-    ['GET', '/api/auth', handleAuthStatus],
-    ['POST', '/api/qr', handleNewQr],
-    ['GET', '/api/qr/poll', handlePollStatus],
-    ['POST', '/api/logout', handleLogout],
+    ['GET', pagePath, handlePage],
+    ['GET', `${base}/api/auth`, handleAuthStatus],
+    ['POST', `${base}/api/qr`, handleNewQr],
+    ['GET', `${base}/api/qr/poll`, handlePollStatus],
+    ['POST', `${base}/api/logout`, handleLogout],
   ];
 
   async function handlePage(req, res) {
@@ -90,7 +91,7 @@ export function createLoginHandler({ auth, host, port, log = () => {}, deps = {}
       'X-Content-Type-Options': 'nosniff',
       'Referrer-Policy': 'no-referrer',
     });
-    res.end(renderLoginPage(nonce));
+    res.end(renderLoginPage(nonce, { base }));
   }
 
   async function handleAuthStatus(req, res) {
@@ -134,6 +135,16 @@ export function createLoginHandler({ auth, host, port, log = () => {}, deps = {}
 
       shared = null; // 用过就作废，避免复用已失效的 key
       log(`[AUTH] 登录成功：${account.uname || account.uid}`);
+
+      // 主服务挂载时，凭证落盘后立刻重绑房间连接，不需要重启进程。
+      // 重绑失败不影响这次登录本身：凭证已经保存，下次启动还能用。
+      if (onLogin) {
+        try {
+          await onLogin(account);
+        } catch (err) {
+          log(`[AUTH] 登录后重连房间失败：${err.message}`);
+        }
+      }
 
       sendJson(res, 200, {
         status: 'confirmed',

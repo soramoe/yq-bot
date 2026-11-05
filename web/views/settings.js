@@ -236,6 +236,32 @@ export function createSettings({ dlg, tabs, body, closeBtn, toast }) {
 
     const nodes = [];
 
+    /* ── 账号 ── */
+    nodes.push(el('div', { class: 'plg-group', text: '账号' }));
+    nodes.push(
+      el('div', { class: 'plg-field' }, {
+        children: [
+          el('div', { class: 'plg-label' }, {
+            children: [el('span', { class: 'plg-label-text', text: `当前账号 ${st.account?.uname || '未登录'}` })],
+          }),
+          el('div', { class: 'side-actions' }, {
+            children: [
+              el('button', {
+                class: 'btn small',
+                attrs: { type: 'button' },
+                text: '切换账号',
+                on: { click: () => window.open('/login', '_blank', 'noopener') },
+              }),
+            ],
+          }),
+          el('div', {
+            class: 'plg-hint',
+            text: '扫码成功后自动重连房间，不用重启服务；凭证只保存在本机 data/auth.json',
+          }),
+        ],
+      }),
+    );
+
     /* ── 更新 ── */
     nodes.push(el('div', { class: 'plg-group', text: '更新' }));
     nodes.push(
