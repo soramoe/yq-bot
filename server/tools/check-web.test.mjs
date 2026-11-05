@@ -1886,3 +1886,112 @@ test('SC 待读：按钮、弹窗和 api 必须真的接到 app.js', () => {
   assert.match(apiSrc, /\/api\/sc\/read/, 'api.js 没有标记已读接口')
 })
 
+/* ══════════════════ 本场礼物目标 ══════════════════ */
+
+async function mountGoal({ goalBattery = 0, announce = false, fail = '' } = {}) {
+  const { createGoalConfig } = await import('../../web/views/goal-config.js')
+  const input = new FakeNode('input')
+  const announceBox = new FakeNode('input')
+  const button = new FakeNode('button')
+  const saved = []
+  const toasts = []
+  const api = {
+    goal: async () => ({ ok: true, goalBattery, announce }),
+    saveGoal: async (v) => {
+      if (fail) throw new Error(fail)
+      saved.push(v)
+      // 和服务端一样：目标清零时播报开关也要收掉
+      return { ok: true, goalBattery: v.goalBattery, announce: v.goalBattery ? v.announce : false }
+    },
+  }
+  const cfg = createGoalConfig({
+    input,
+    announceBox,
+    button,
+    api,
+    toast: (text, level) => toasts.push({ text, level }),
+  })
+  return { cfg, input, announceBox, button, saved, toasts }
+}
+
+test('礼物目标：打开时把电池回填成元，勾选状态跟着回填', async () => {
+  const { cfg, input, announceBox } = await mountGoal({ goalBattery: 20_000, announce: true })
+  await cfg.load()
+  assert.equal(input.value, '2000', '输入框单位是元，不能把 20000 电池直接填进去')
+  assert.equal(announceBox.checked, true)
+})
+
+test('礼物目标：保存把元换算成电池，播报开关一起发', async () => {
+  const { cfg, input, announceBox, button, toasts, saved } = await mountGoal()
+  input.value = '1000'
+  announceBox.checked = true
+  await cfg.save()
+
+  assert.deepEqual(saved, [{ goalBattery: 10_000, announce: true }])
+  assert.equal(toasts.at(-1).level, 'info')
+  assert.match(toasts.at(-1).text, /过半\/达成时播报/)
+  assert.equal(button.disabled, false)
+})
+
+test('礼物目标：清空或非数字不发请求，保留原文并提示', async () => {
+  const { cfg, input, toasts, saved } = await mountGoal()
+
+  input.value = '   '
+  await cfg.save()
+  assert.deepEqual(saved, [], '空串不能当成 0 关掉目标')
+
+  input.value = 'abc'
+  await cfg.save()
+  assert.deepEqual(saved, [])
+  assert.equal(input.value, 'abc', '让用户改，不能偷偷清掉')
+  assert.equal(toasts.at(-1).level, 'error')
+})
+
+test('礼物目标：保存 0 时强制关播报，不留下假开关', async () => {
+  const { cfg, input, announceBox, toasts, saved } = await mountGoal()
+  input.value = '0'
+  announceBox.checked = true
+  await cfg.save()
+
+  assert.deepEqual(saved, [{ goalBattery: 0, announce: true }], '勾选状态照发，服务端会收掉')
+  assert.equal(announceBox.checked, false, '回填以服务端返回为准')
+  assert.match(toasts.at(-1).text, /已关闭礼物目标/)
+})
+
+test('礼物目标：保存失败保留用户填的目标，按钮恢复', async () => {
+  const { cfg, input, button, toasts } = await mountGoal({ fail: '写不进配置' })
+  input.value = '888'
+  await cfg.save()
+
+  assert.equal(input.value, '888')
+  assert.equal(toasts.at(-1).text, '写不进配置')
+  assert.equal(button.disabled, false)
+})
+
+test('礼物目标：输入框回车是保存，不提交房间表单', async () => {
+  const { cfg, input, saved } = await mountGoal()
+  input.value = '500'
+
+  let prevented = false
+  input.listeners.keydown[0]({ key: 'Enter', preventDefault: () => (prevented = true) })
+  await new Promise((r) => setImmediate(r))
+
+  assert.equal(prevented, true)
+  assert.deepEqual(saved, [{ goalBattery: 5_000, announce: false }])
+})
+
+test('礼物目标：页面控件必须真的接到 app.js', () => {
+  const html = readFileSync(join(process.cwd(), 'web/index.html'), 'utf8')
+  const app = readFileSync(join(process.cwd(), 'web/app.js'), 'utf8')
+  const apiSrc = readFileSync(join(process.cwd(), 'web/core/api.js'), 'utf8')
+
+  for (const id of ['goal-input', 'goal-save', 'goal-announce']) {
+    assert.ok(html.includes(`id="${id}"`), `index.html 里没有 #${id}`)
+  }
+  assert.match(app, /createGoalConfig\s*\(/, 'app.js 没有创建礼物目标设置')
+  assert.match(app, /goalInput:\s*\$\('#goal-input'\)/)
+  assert.match(app, /goalAnnounce:\s*\$\('#goal-announce'\)/)
+  assert.match(app, /goalConfig\.load\(\)/, '打开总览时要回填目标')
+  assert.match(apiSrc, /\/api\/goal/, 'api.js 没有礼物目标接口')
+})
+

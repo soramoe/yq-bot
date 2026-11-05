@@ -92,6 +92,9 @@ test('挂件页面：该有的节点和脚本一个不少', () => {
     'ov-paid-list',
     'ov-gifts',
     'ov-gift-list',
+    'ov-goal',
+    'ov-goal-text',
+    'ov-goal-fill',
     'ov-bigspend',
     'ov-offline',
   ]) {
@@ -111,6 +114,8 @@ test('挂件脚本：连的是同源 WS，付费榜走日志接口', () => {
   const js = webFile('overlay.js')
   assert.match(js, /\/ws\?after=/)
   assert.match(js, /\/api\/patrons\?days=0&limit=5/)
+  assert.match(js, /giftGoalBattery/, '目标进度条要读 brief 里的目标')
+  assert.match(js, /ov-goal-fill/)
   assert.match(js, /export function moneyText/)
   assert.match(js, /export function durationText/)
   assert.match(js, /export function giftLine/)

@@ -19,6 +19,7 @@ import { join } from 'node:path'
 import App, { normalizeRoomId } from '../app.mjs'
 import { buildRoutes } from '../http/api.mjs'
 import { MAX_BIG_SPEND_BATTERY } from '../core/patrons.mjs'
+import { MAX_GOAL_BATTERY } from '../core/goal.mjs'
 
 const SILENT = { debug() {}, info() {}, warn() {}, error() {} }
 
@@ -70,6 +71,7 @@ class FakeGate {
   constructor(dryRun) {
     this.config = { dryRun }
     this.updates = 0
+    this.said = []
   }
 
   update(patch) {
@@ -80,6 +82,12 @@ class FakeGate {
 
   snapshot() {
     return { dryRun: this.config.dryRun, counters: {} }
+  }
+
+  /** 播报：记录但不真的发弹幕 */
+  async say(opts) {
+    this.said.push(opts)
+    return { ok: true, dryRun: this.config.dryRun, text: opts.text }
   }
 }
 
@@ -1497,4 +1505,149 @@ test('接口：POST /api/sc/read 校验 id 并落盘，重复标记不重复计�
   // 新 App 读同一份数据目录：已读状态要还在（只构造，不启动，避免再连一次）
   const app2 = new App({ dataDir, roomId: '100', dryRun: true, log: SILENT })
   assert.equal(app2.scReadIds().has('e100-2'), true, '已读状态必须跨进程保留')
+})
+
+/* ══════════════════ 本场礼物目标 ══════════════════ */
+
+test('礼物目标：过半与达成各播一次，重复事件不重复喊', async (t) => {
+  const { app } = makeApp(t, { rooms: ['100'], cfg: { giftGoalBattery: 10_000 } })
+  await app.start()
+
+  const runner = app.rooms.get('100').runner
+  let gift = 0
+  runner.projection = { snapshot: () => ({ giftBattery: gift, sessionId: 's-goal' }) }
+
+  const notices = []
+  app.subscribe((m) => {
+    if (m.type === 'notice') notices.push(m)
+  })
+
+  let seq = 0
+  const giftEv = (battery) => {
+    seq += 1
+    return {
+      seq,
+      ts: 1_700_000_000_000 + seq,
+      type: 'GIFT',
+      payload: { uid: '7', uname: '甲', giftName: '火箭', num: 1, battery, isPaid: true },
+    }
+  }
+
+  gift = 5_000
+  runner.push(giftEv(5_000))
+  await bigTick()
+  assert.equal(runner.gate.said.length, 1)
+  assert.equal(runner.gate.said[0].text, '目标过半：¥500/¥1000')
+  assert.equal(runner.gate.said[0].priority, 1, '过线要抢一个弹幕槽位')
+
+  gift = 10_000
+  runner.push(giftEv(5_000))
+  await bigTick()
+  assert.equal(runner.gate.said.length, 2)
+  assert.equal(runner.gate.said[1].text, '礼物目标达成！¥1000')
+
+  gift = 11_000
+  runner.push(giftEv(1_000))
+  await bigTick()
+  assert.equal(runner.gate.said.length, 2, '已经达成的目标不再重复播')
+
+  // 同一条事件重放：_onEvent 直接 return，不该再喊
+  const replay = { ...giftEv(0) }
+  replay.seq = seq
+  runner.push(replay)
+  await bigTick()
+  assert.equal(runner.gate.said.length, 2)
+  assert.equal(notices.filter((m) => /目标/.test(m.data.text)).length, 2)
+})
+
+test('礼物目标：为 0 或关掉播报时，页内提示照旧但不出声', async (t) => {
+  const { app: off } = makeApp(t, { rooms: ['100'] })
+  await off.start()
+  const runnerOff = off.rooms.get('100').runner
+  runnerOff.projection = { snapshot: () => ({ giftBattery: 50_000, sessionId: 's0' }) }
+  const seenOff = []
+  off.subscribe((m) => seenOff.push(m))
+  runnerOff.push({
+    seq: 1,
+    ts: 1_700_000_001_000,
+    type: 'GIFT',
+    payload: { uid: '7', uname: '甲', giftName: '火箭', battery: 50_000, isPaid: true },
+  })
+  await bigTick()
+  assert.equal(seenOff.filter((m) => m.type === 'notice').length, 0, '目标为 0 时什么都不说')
+  assert.equal(runnerOff.gate.said.length, 0)
+
+  const { app } = makeApp(t, {
+    rooms: ['100'],
+    cfg: { giftGoalBattery: 10_000, giftGoalAnnounce: false },
+  })
+  await app.start()
+  const runner = app.rooms.get('100').runner
+  runner.projection = { snapshot: () => ({ giftBattery: 5_000, sessionId: 's1' }) }
+  const seen = []
+  app.subscribe((m) => seen.push(m))
+  runner.push({
+    seq: 1,
+    ts: 1_700_000_002_000,
+    type: 'GIFT',
+    payload: { uid: '7', uname: '甲', giftName: '火箭', battery: 5_000, isPaid: true },
+  })
+  await bigTick()
+  assert.equal(seen.filter((m) => m.type === 'notice').length, 1, '页内提示不受播报开关影响')
+  assert.equal(runner.gate.said.length, 0, '播报关掉就不能发弹幕')
+})
+
+test('礼物目标配置：坏值忽略，不截断成半截目标', async (t) => {
+  const logs = []
+  const { app } = makeApp(t, {
+    rooms: ['100'],
+    cfg: { giftGoalBattery: MAX_GOAL_BATTERY + 1 },
+    log: { ...SILENT, warn: (m) => logs.push(m) },
+  })
+  await app.start()
+  assert.equal(app.giftGoalBattery, 0)
+  assert.equal(app.giftGoalAnnounce, false, '没有目标就没有可播报的里程碑')
+  assert.match(logs.join('\n'), /giftGoalBattery 无效/)
+})
+
+test('接口：GET/POST /api/goal 校验整数并落盘', async (t) => {
+  const { app, dataDir } = makeApp(t, { rooms: ['100'] })
+  await app.start()
+  const routes = buildRoutes(app)
+
+  const get = fakeRes()
+  await routes.match('GET', '/api/goal').handler({
+    res: get,
+    url: new URL('http://x/api/goal'),
+    app,
+  })
+  assert.equal(get.statusCode, 200)
+  assert.deepEqual(JSON.parse(get.body), { ok: true, goalBattery: 0, announce: false })
+
+  const { Readable } = await import('node:stream')
+  const post = async (body) => {
+    const res = fakeRes()
+    const req = Readable.from([Buffer.from(JSON.stringify(body))])
+    req.headers = { 'content-type': 'application/json' }
+    await routes.match('POST', '/api/goal').handler({
+      req,
+      res,
+      url: new URL('http://x/api/goal'),
+      app,
+    })
+    return res
+  }
+
+  for (const bad of [{ goalBattery: '20000' }, { goalBattery: -1 }, { goalBattery: 1.5 }]) {
+    assert.equal((await post(bad)).statusCode, 400, `坏目标应当 400：${JSON.stringify(bad)}`)
+  }
+
+  const ok = await post({ goalBattery: 20_000, announce: true })
+  assert.equal(ok.statusCode, 200)
+  assert.deepEqual(JSON.parse(ok.body), { ok: true, goalBattery: 20_000, announce: true })
+  assert.equal(JSON.parse(readFileSync(join(dataDir, 'app.json'), 'utf8')).giftGoalBattery, 20_000)
+
+  const cleared = await post({ goalBattery: 0, announce: true })
+  assert.equal(cleared.statusCode, 200)
+  assert.equal(JSON.parse(cleared.body).announce, false, '目标清零时播报也要关，不能留下假开关')
 })

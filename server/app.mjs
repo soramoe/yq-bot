@@ -21,6 +21,7 @@ import { UpdateChecker } from './core/update.mjs';
 import { buildDiagnostic } from './core/diagnostic.mjs';
 import { maskWebhook, notifyText, reportText, sendWebhook } from './core/notify.mjs';
 import { buildScQueue, MAX_READ_IDS } from './core/sc-queue.mjs';
+import { MAX_GOAL_BATTERY, goalMilestone, goalText } from './core/goal.mjs';
 import {
   MAX_BIG_SPEND_BATTERY,
   bigSpendText,
@@ -134,6 +135,25 @@ export class App {
      * 页内 toast 照发；配了 webhook 时再外发。1 元 = 10 电池。
      */
     this.bigSpendBattery = 0;
+
+    /**
+     * 本场礼物目标（电池，0 = 关闭）。
+     *
+     * "本场"以投影当前场次为准：下播再开就是新的一轮，进度从 0 开始。
+     * 目标属于这台机器（所有房间共用一个），因为主播通常只有一个价目表。
+     */
+    this.giftGoalBattery = 0;
+
+    /**
+     * 到 50% / 100% 时是否在弹幕里播报。
+     *
+     * 默认开：设了目标却完全没声，观众不知道进度走到哪了。
+     * 不想说话的人可以在面板里关掉，页内提示与挂件进度条仍然在。
+     */
+    this.giftGoalAnnounce = true;
+
+    /** 已经播报过的里程碑：`<房间>:<场次>:<百分比>`，防同一场重复喊 */
+    this._goalSaid = new Set();
 
     /**
      * SC 待读：已读事件 id 集合。懒加载，读失败就当全没读过。
@@ -250,6 +270,24 @@ export class App {
         );
       }
     }
+
+    // 本场礼物目标：同样只收 0..MAX 的整数；写坏了当没配，不能截断
+    if (cfg.giftGoalBattery !== undefined) {
+      if (
+        Number.isInteger(cfg.giftGoalBattery) &&
+        cfg.giftGoalBattery >= 0 &&
+        cfg.giftGoalBattery <= MAX_GOAL_BATTERY
+      ) {
+        this.giftGoalBattery = cfg.giftGoalBattery;
+      } else {
+        this.log.warn(
+          '[配置] data/app.json 里的 giftGoalBattery 无效（0..1000000000 的整数），已忽略',
+        );
+      }
+    }
+    if (typeof cfg.giftGoalAnnounce === 'boolean') this.giftGoalAnnounce = cfg.giftGoalAnnounce;
+    // 目标为 0 时没有"过线"可播报，开关跟着关掉，避免留下一个永远不生效的 true
+    if (!this.giftGoalBattery) this.giftGoalAnnounce = false;
 
     mkdirSync(this.dataDir, { recursive: true });
 
@@ -480,6 +518,8 @@ export class App {
         notifyWebhook: this.notifyWebhook,
         notifyReport: this.notifyReport,
         bigSpendBattery: this.bigSpendBattery,
+        giftGoalBattery: this.giftGoalBattery,
+        giftGoalAnnounce: this.giftGoalAnnounce,
       },
       null,
       2,
@@ -1185,6 +1225,8 @@ export class App {
     // 大额提醒与开播/下播无关，但同样只在这一层做：插件可以被关掉，
     // "有人一次花了很多钱"这件事不该取决于哪个插件刚好开着
     this._notifyBigSpend(room, rec);
+    // 礼物目标同样挂在内核层：插件关掉不影响"本场进度走到哪"
+    this._notifyGoal(room, rec);
   }
 
   /**
@@ -1283,6 +1325,65 @@ export class App {
         data: { level: 'warn', text: `大额提醒已显示，但 webhook 没发出去：${why}` },
       });
     });
+  }
+
+  /**
+   * 本场礼物目标过线播报。
+   *
+   * 只在 GIFT 上判断：目标的名字就是"礼物"，舰长/SC 有各自的答谢；
+   * 混在一起会让主播说不清"还差多少"。进度取刚更新过的投影快照，
+   * 用「这笔之前 / 这笔之后」算过线，避免按当前比例每来一条就喊一次。
+   *
+   * 同一场同一档只播一次（`_goalSaid` 按场次 id 记）；换场后 sessionId 变了，
+   * 旧的 key 永远不会再命中，所以不需要主动清空。
+   */
+  _notifyGoal(room, rec) {
+    const goal = this.giftGoalBattery;
+    if (!goal || rec?.type !== 'GIFT') return;
+
+    const proj = room?.runner?.projection;
+    if (!proj || typeof proj.snapshot !== 'function') return;
+
+    let snap;
+    try {
+      snap = proj.snapshot();
+    } catch {
+      return;
+    }
+    if (!snap) return;
+
+    const after = Math.max(0, Number(snap.giftBattery) || 0);
+    const before = Math.max(0, after - (paidBatteryOf(rec) || 0));
+    const milestone = goalMilestone(before, after, goal);
+    if (!milestone) return;
+
+    const roomId = room.runner?.realRoomId || room.key;
+    const key = `${roomId}:${snap.sessionId ?? ''}:${milestone}`;
+    if (this._goalSaid.has(key)) return;
+    this._goalSaid.add(key);
+    // 极端长跑也不让这个 Set 无限涨；清掉后最坏是同一场再喊一次
+    if (this._goalSaid.size > 500) this._goalSaid.clear();
+
+    const text = goalText(milestone, after, goal);
+    this._emit({ type: 'notice', data: { level: 'info', text } });
+    this.log.info(`[目标] ${text}`);
+
+    if (!this.giftGoalAnnounce) return;
+    const gate = room.runner?.gate;
+    if (!gate?.say) return;
+
+    // 高优先级 + 等一个槽位：过线是"此刻"的事，错过了补一句反而奇怪。
+    // 不 await：闸门自己的失败已经会记日志，这里只兜住 Promise 拒绝。
+    gate
+      .say({
+        roomId,
+        text,
+        reason: 'gift_goal',
+        source: 'goal',
+        priority: 1,
+        maxWaitMs: 5000,
+      })
+      .catch((err) => this.log.warn(`[目标] 播报失败：${err?.message ?? err}`));
   }
 
   /**
@@ -1443,6 +1544,45 @@ export class App {
     return this.bigSpendBattery;
   }
 
+  /**
+   * 设置本场礼物目标与是否播报。
+   *
+   * 目标是"所有房间共用"的机器级配置：主播只有一个价目表，
+   * 换个房间就看到另一个目标反而会让人以为是 bug。
+   *
+   * 目标为 0 时强制关掉播报：否则广播开关看起来还亮着，
+   * 但永远不会有"过线"发生，用户会以为功能坏了。
+   */
+  setGiftGoal({ goalBattery, announce } = {}) {
+    const nextGoal = goalBattery === undefined ? this.giftGoalBattery : goalBattery;
+    if (!Number.isInteger(nextGoal) || nextGoal < 0 || nextGoal > MAX_GOAL_BATTERY) {
+      throw Object.assign(new Error('礼物目标要写成 0 或正整数（单位：电池，0 = 关闭）'), {
+        status: 400,
+        code: 'bad_goal',
+      });
+    }
+    if (announce !== undefined && typeof announce !== 'boolean') {
+      throw Object.assign(new Error('播报开关只能是 true 或 false'), {
+        status: 400,
+        code: 'bad_goal',
+      });
+    }
+
+    const beforeGoal = this.giftGoalBattery;
+    const beforeAnnounce = this.giftGoalAnnounce;
+    this.giftGoalBattery = nextGoal;
+    this.giftGoalAnnounce = nextGoal ? (announce ?? beforeAnnounce) : false;
+    if (!this._saveConfig()) {
+      this.giftGoalBattery = beforeGoal;
+      this.giftGoalAnnounce = beforeAnnounce;
+      throw Object.assign(new Error('保存礼物目标失败：写不进 data/app.json'), {
+        status: 500,
+        code: 'save_failed',
+      });
+    }
+    return { goalBattery: this.giftGoalBattery, announce: this.giftGoalAnnounce };
+  }
+
   _pushStats() {
     if (!this.runner) return;
     this._emit({ type: 'stats', data: this.brief() });
@@ -1476,6 +1616,8 @@ export class App {
       enterCount: st.enterCount ?? 0,
       giftCount: st.giftCount ?? 0,
       giftBattery: st.giftBattery ?? 0,
+      /** 本场礼物目标（电池，0 = 关闭）。挂件进度条按它画，页面也能显示 */
+      giftGoalBattery: this.giftGoalBattery,
       guardCount: st.guardCount ?? 0,
       scCount: st.scCount ?? 0,
       scBattery: st.scBattery ?? 0,

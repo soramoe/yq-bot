@@ -82,6 +82,17 @@
             下播后把本场战报发到同一个 webhook
           </label>
         </div>
+        <div class="room-goal">
+          <label for="goal-input">本场礼物目标（元，0 = 关闭；下播再开重新算）</label>
+          <div class="room-notify-row">
+            <input id="goal-input" type="number" min="0" step="1" inputmode="decimal" autocomplete="off" placeholder="例如 1000" />
+            <button class="btn" type="button" id="goal-save">保存</button>
+          </div>
+          <label class="room-notify-check" for="goal-announce">
+            <input id="goal-announce" type="checkbox" />
+            到 50% / 100% 时在弹幕里播报
+          </label>
+        </div>
         <div class="dlg-actions">
           <button class="btn" type="button" id="room-cancel">取消</button>
           <button class="btn primary" value="ok" type="submit" id="room-ok">打开这间</button>

@@ -93,6 +93,9 @@ const els = typeof document === 'undefined' ? null : {
   enter: $('ov-enter'),
   gift: $('ov-gift'),
   sc: $('ov-sc'),
+  goal: $('ov-goal'),
+  goalText: $('ov-goal-text'),
+  goalFill: $('ov-goal-fill'),
   paid: $('ov-paid'),
   paidList: $('ov-paid-list'),
   gifts: $('ov-gifts'),
@@ -135,6 +138,21 @@ function applyBrief(b) {
   els.enter.textContent = num(b.enterCount);
   els.gift.textContent = num(b.giftCount);
   els.sc.textContent = num(b.scCount);
+
+  // 目标进度：没设目标就整块藏掉，避免挂件上挂一条永远 0% 的横线
+  const goal = Math.max(0, Number(b.giftGoalBattery) || 0);
+  if (els.goal) {
+    if (goal > 0) {
+      const got = Math.min(goal, Math.max(0, Number(b.giftBattery) || 0));
+      els.goal.hidden = false;
+      els.goalText.textContent = `${moneyText(got)} / ${moneyText(goal)}`;
+      if (els.goalFill) {
+        els.goalFill.style.width = `${Math.min(100, (got / goal) * 100).toFixed(1)}%`;
+      }
+    } else {
+      els.goal.hidden = true;
+    }
+  }
 
   els.dot.className = `ov-dot${liveState === 'live' ? ' is-live' : liveState === 'live_unknown' ? ' is-unknown' : ''}`;
   renderClock();

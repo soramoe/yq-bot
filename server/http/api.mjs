@@ -16,6 +16,7 @@ import { buildTimeline, normalizeStep } from '../core/timeline.mjs';
 import { replay } from '../core/sandbox.mjs';
 import { buildPatrons } from '../core/patrons.mjs';
 import { buildScQueue } from '../core/sc-queue.mjs';
+import { MAX_GOAL_BATTERY } from '../core/goal.mjs';
 
 /**
  * @param {import('../app.mjs').App} app
@@ -621,6 +622,37 @@ export function buildRoutes(app) {
     }
     const marked = app.markScRead(ids);
     sendJson(res, { ok: true, marked });
+  });
+
+  /* 本场礼物目标。电池为单位，0 = 关闭；播报开关随目标一起存。 */
+  r.get('/api/goal', async ({ res }) => {
+    sendJson(res, {
+      ok: true,
+      goalBattery: app.giftGoalBattery ?? 0,
+      announce: app.giftGoalAnnounce === true,
+    });
+  });
+
+  r.post('/api/goal', async ({ req, res }) => {
+    const body = await readJson(req);
+    if (
+      !Number.isInteger(body?.goalBattery) ||
+      body.goalBattery < 0 ||
+      body.goalBattery > MAX_GOAL_BATTERY
+    ) {
+      sendError(
+        res,
+        400,
+        'bad_request',
+        '需要 { "goalBattery": 2000, "announce": true }（单位：电池，0 = 关闭）',
+      );
+      return;
+    }
+    const saved = app.setGiftGoal({
+      goalBattery: body.goalBattery,
+      announce: typeof body.announce === 'boolean' ? body.announce : undefined,
+    });
+    sendJson(res, { ok: true, ...saved });
   });
 
   return r;

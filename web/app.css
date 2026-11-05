@@ -909,6 +909,18 @@ dialog::backdrop {
   flex: none;
   margin: 0;
 }
+/* 礼物目标：和提醒同一套排布，避免两个设置块看起来像两个年代的页面 */
+.room-goal {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s2);
+  padding-top: var(--s3);
+  border-top: 1px dashed var(--line);
+}
+.room-goal label {
+  font-size: var(--fs-xs);
+  color: var(--text-3);
+}
 .room-badge {
   font-size: var(--fs-xs);
   color: var(--accent);

@@ -18,6 +18,7 @@ import { createReports } from './views/reports.js';
 import { createSettings } from './views/settings.js';
 import { createStream } from './views/stream.js';
 import { createNotifyConfig } from './views/notify-config.js';
+import { createGoalConfig } from './views/goal-config.js';
 import { createPatrons } from './views/patrons.js';
 import { createScQueue } from './views/sc-queue.js';
 import { buildRoomRows, summarizeRooms } from './views/room-overview.js';
@@ -55,6 +56,9 @@ const dom = {
   notifyInput: $('#notify-input'),
   notifySave: $('#notify-save'),
   notifyReport: $('#notify-report'),
+  goalInput: $('#goal-input'),
+  goalSave: $('#goal-save'),
+  goalAnnounce: $('#goal-announce'),
   dlgPlugins: $('#dlg-plugins'),
   plgTabs: $('#plg-tabs'),
   plgBody: $('#plg-body'),
@@ -94,6 +98,15 @@ const notifyConfig = createNotifyConfig({
   input: dom.notifyInput,
   button: dom.notifySave,
   reportBox: dom.notifyReport,
+  api,
+  toast,
+});
+
+// 礼物目标和提醒一样是机器级设置，放在房间总览里，打开时读一次
+const goalConfig = createGoalConfig({
+  input: dom.goalInput,
+  announceBox: dom.goalAnnounce,
+  button: dom.goalSave,
   api,
   toast,
 });
@@ -423,6 +436,7 @@ dom.btnRoom.addEventListener('click', () => {
   renderRooms();
   // 提醒地址同理：可能刚在另一个标签页改过
   notifyConfig.load();
+  goalConfig.load();
   // 打开期间每 2 秒刷一次：多房间的用处就是"一眼扫过去"，不刷新等于看快照
   startRoomPoll();
   dom.roomInput.focus();

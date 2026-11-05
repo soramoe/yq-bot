@@ -144,6 +144,51 @@ body {
   font-variant-numeric: tabular-nums;
 }
 
+/* ── 本场礼物目标 ── */
+
+.ov-goal {
+  left: 3vw;
+  bottom: calc(4vh + 9.6vh);
+  width: clamp(240px, 24vw, 460px);
+  padding: 1.1vh 1.2vw;
+}
+
+.ov-goal-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 1vw;
+  margin-bottom: 0.7vh;
+}
+
+.ov-goal-label {
+  font-size: clamp(10px, 0.72vw, 14px);
+  letter-spacing: 0.08em;
+  color: var(--ov-dim);
+}
+
+.ov-goal-text {
+  font-size: clamp(11px, 0.88vw, 17px);
+  font-weight: 600;
+  color: var(--ov-pink);
+  font-variant-numeric: tabular-nums;
+}
+
+.ov-goal-track {
+  height: clamp(4px, 0.5vh, 8px);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.14);
+  overflow: hidden;
+}
+
+.ov-goal-fill {
+  width: 0;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, var(--ov-accent), var(--ov-pink));
+  transition: width 0.45s ease-out;
+}
+
 /* ── 付费用户 ── */
 
 .ov-paid {
