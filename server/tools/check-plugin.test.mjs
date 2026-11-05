@@ -513,6 +513,30 @@ test('欢迎：先进场后关注，也只发一条（反过来也必须挡住�
   assert.equal(says[0].reason, 'welcome')
 })
 
+test('欢迎：本场欢迎过，之后关注仍然单独谢（本场一次只挡重复进场）', async (t) => {
+  const { host, says } = await welcomeHost(t, { cooldownSec: 0, oncePerSession: true })
+
+  await host.dispatch({ type: 'ENTER', payload: { uid: 3005, uname: '常驻' } })
+  await host.dispatch({ type: 'FOLLOW', payload: { uid: 3005, uname: '常驻' } })
+
+  assert.equal(says.length, 2, '开场欢迎过，不代表这次关注可以不说')
+  assert.equal(says[0].reason, 'welcome')
+  assert.equal(says[1].reason, 'follow')
+})
+
+test('欢迎：本场欢迎过，之后上舰仍然要谢（花钱不该被吞）', async (t) => {
+  const { host, says } = await welcomeHost(t, { cooldownSec: 0, oncePerSession: true })
+
+  await host.dispatch({ type: 'ENTER', payload: { uid: 3006, uname: '舰长' } })
+  await host.dispatch({
+    type: 'GUARD_BUY',
+    payload: { uid: 3006, uname: '舰长', guardLevel: 3, battery: 198000 },
+  })
+
+  assert.equal(says.length, 2)
+  assert.equal(says[1].reason, 'guard')
+})
+
 test('欢迎：关掉"感谢关注"后，关注既不发言也不认领', async (t) => {
   const { host, says } = await welcomeHost(t, { welcomeFollow: false })
   const r = await host.dispatch({ type: 'FOLLOW', payload: { uid: 3004, uname: '新粉丝' } })

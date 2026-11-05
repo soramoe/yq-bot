@@ -21,5 +21,9 @@ export function handleGuard(ctx, ev, greeter) {
   const renew = ev?.payload?.isRenew === true
   // 续费文案留空时回落到上舰文案：宁可说得普通，也不能因为没填新字段就不吭声。
   const template = renew ? cfg.renewTemplate || cfg.guardTemplate : cfg.guardTemplate
-  return greeter.greet(ctx, ev, { template, reason: renew ? 'guard_renew' : 'guard' })
+  return greeter.greet(ctx, ev, {
+    template,
+    reason: renew ? 'guard_renew' : 'guard',
+    sessionGate: false,
+  })
 }

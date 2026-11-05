@@ -83,10 +83,10 @@ export class Greeter {
   /**
    * @param {object} ctx 插件上下文
    * @param {object} ev  事件
-   * @param {{template:string, reason:string, allowReturning?:boolean}} opts
+   * @param {{template:string, reason:string, allowReturning?:boolean, sessionGate?:boolean}} opts
    * @returns {boolean} 是否认领了这条事件
    */
-  greet(ctx, ev, { template, reason, allowReturning = false }) {
+  greet(ctx, ev, { template, reason, allowReturning = false, sessionGate = true }) {
     const cfg = ctx.config
     const p = ev.payload ?? {}
     const uid = String(p.uid ?? '')
@@ -111,8 +111,12 @@ export class Greeter {
     // ① 短期冷却
     if (this._onCooldown(ctx, uid, cfg.cooldownSec, now)) return true
 
-    // ② 本场已经说过了
-    if (this._saidThisSession(ctx, uid, cfg, now)) return true
+    // ② 本场已经说过了。
+    //    只挡「重复进场」：同一场里进出二十次不该被欢迎二十遍。
+    //    关注 / 分享 / 上舰是**一次性**事件，本场欢迎过也不该把这次谢意吞掉 ——
+    //    尤其是上舰，花了钱却因为开场被欢迎过而没声，比多说一句难受得多。
+    //    这几条仍有 90 秒冷却，挡住"关注后紧跟进场"那种连发。
+    if (sessionGate && this._saidThisSession(ctx, uid, cfg, now)) return true
 
     // ③ 说哪一句，由"来没来过"决定。
     //    只有进场问这个 —— 关注和上舰是**一次性**事件，
@@ -208,7 +212,11 @@ export function handleEnter(ctx, ev, greeter) {
 export function handleFollow(ctx, ev, greeter) {
   const cfg = ctx.config
   if (!cfg.welcomeFollow) return false
-  return greeter.greet(ctx, ev, { template: cfg.followTemplate, reason: 'follow' })
+  return greeter.greet(ctx, ev, {
+    template: cfg.followTemplate,
+    reason: 'follow',
+    sessionGate: false,
+  })
 }
 
 /**
@@ -223,7 +231,11 @@ export function handleFollow(ctx, ev, greeter) {
 export function handleShare(ctx, ev, greeter) {
   const cfg = ctx.config
   if (!cfg.welcomeShare) return false
-  return greeter.greet(ctx, ev, { template: cfg.shareTemplate, reason: 'share' })
+  return greeter.greet(ctx, ev, {
+    template: cfg.shareTemplate,
+    reason: 'share',
+    sessionGate: false,
+  })
 }
 
 /** 给测试与外部用的常量，避免两边写死同一个数字 */
