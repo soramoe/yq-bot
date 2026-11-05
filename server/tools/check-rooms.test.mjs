@@ -1761,6 +1761,50 @@ test('回访提醒：这场之前付过钱的观众再进房，只响一次；�
   assert.equal(notices.length, 1)
 })
 
+test('回访提醒：同一门槛再保存一次，不会把已经提醒过的人重新算一遍', async (t) => {
+  const { app } = makeApp(t, { rooms: ['100'], cfg: { patronReturnBattery: 500 } })
+  await app.start()
+
+  const runner = app.runner
+  const start = 1_700_000_000_000
+  runner.projection = {
+    session: { id: 's1', startedAt: start },
+    snapshot: () => ({ sessionId: 's1' }),
+  }
+  runner.log_ = {
+    readAllAsync: async () => [
+      { seq: 1, ts: start - 900, type: 'GIFT', payload: { uid: '7', uname: '甲', battery: 600 } },
+    ],
+  }
+  await app._warmPatrons()
+
+  const notices = []
+  app.subscribe((msg) => {
+    if (msg.type === 'notice') notices.push(msg.data.text)
+  })
+  runner.push({ seq: 11, ts: start + 100, type: 'ENTER', payload: { uid: '7', uname: '甲' } })
+  assert.equal(notices.length, 1)
+
+  app.setPatronReturnBattery(500)
+  await new Promise((r) => setTimeout(r, 10))
+  runner.push({ seq: 12, ts: start + 200, type: 'ENTER', payload: { uid: '7', uname: '甲' } })
+  assert.equal(notices.length, 1, '同值保存不能清掉本场的去重集')
+})
+
+test('付费用户提醒：两项一起保存，写盘失败一起回滚', async (t) => {
+  const { app } = makeApp(t, { rooms: ['100'] })
+  await app.start()
+  const before = { battery: app.bigSpendBattery, ret: app.patronReturnBattery }
+  app._saveConfig = () => false
+
+  assert.throws(
+    () => app.setPatronsAlert({ battery: 10_000, returnBattery: 5_000 }),
+    (e) => e.status === 500 && e.code === 'save_failed',
+  )
+  assert.equal(app.bigSpendBattery, before.battery, '第一项也要回滚')
+  assert.equal(app.patronReturnBattery, before.ret)
+})
+
 test('回访提醒：后台房间开播不能清掉当前房间的回访索引', async (t) => {
   const { app } = makeApp(t, {
     rooms: ['100', '200'],
@@ -1914,6 +1958,30 @@ test('点歌：后台房间的 SC 不进当前队列', async (t) => {
   bg.push({ seq: 1, ts: 1, type: 'SUPER_CHAT', payload: { uid: '7', uname: '甲', text: '点歌 晴天', yuan: 30 } })
   assert.equal(app.songsView().items.length, 0)
   assert.equal(bg.gate.said.length, 0, '后台房间也不该播报')
+})
+
+test('点歌：写盘失败时不播「接下来播放」', async (t) => {
+  const { app } = makeApp(t, { rooms: ['100'] })
+  await app.start()
+  const runner = app.runner
+  runner.push({
+    seq: 1,
+    ts: 1,
+    type: 'SUPER_CHAT',
+    payload: { uid: '7', uname: '甲', text: '点歌 晴天', yuan: 30 },
+  })
+  const id = app.songsView().items[0].id
+  const saidBefore = runner.gate.said.length
+  app._saveSongs = () => {
+    throw new Error('disk full')
+  }
+
+  assert.throws(
+    () => app.songAction(id, 'play'),
+    (e) => e.status === 500 && e.code === 'save_failed',
+  )
+  await new Promise((r) => setTimeout(r, 10))
+  assert.equal(runner.gate.said.length, saidBefore, '保存失败不能先说要播')
 })
 
 test('点歌接口：播放 / 完成 / 跳过与落盘', async (t) => {
@@ -2260,6 +2328,10 @@ test('接口：/api/obs 保存不落密码原文，GET 只回 passwordSet', asyn
   assert.equal(bad.statusCode, 400)
   assert.equal(JSON.parse(bad.body).error.code, 'bad_obs')
 
+  const badType = await post({ enabled: 'false' })
+  assert.equal(badType.statusCode, 400, '字符串 "false" 不能被当成开启')
+  assert.equal(JSON.parse(badType.body).error.code, 'bad_obs')
+
   const empty = await post({ enabled: true, url: '' })
   assert.equal(empty.statusCode, 400)
   assert.match(JSON.parse(empty.body).error.message, /不能为空/)
@@ -2310,6 +2382,71 @@ test('OBS：开播/下播边沿各切一次场景，密码跟着配置走', asyn
   runner.push({ seq: 3, ts: Date.now(), type: 'LIVE_END', payload: {} }, 'live_ended')
   await new Promise((r) => setTimeout(r, 30))
   assert.equal(calls.length, before)
+})
+
+test('OBS：后台房间的开播/下播边沿不能切当前房间的场景', async (t) => {
+  const scenes = []
+  const createObs = () => ({
+    request: async (type, data) => scenes.push(data.sceneName),
+    close() {},
+  })
+  const { app } = makeApp(t, {
+    rooms: ['100', '200'],
+    activeRoomId: '100',
+    cfg: {
+      obsEnabled: true,
+      obsUrl: 'ws://127.0.0.1:4455',
+      obsLiveScene: '直播中',
+      obsOfflineScene: '闲聊',
+    },
+    createObs,
+  })
+  await app.start()
+
+  const bg = app.rooms.get('200').runner
+  bg.push({ seq: 1, ts: Date.now(), type: 'LIVE_START', payload: {} }, 'live_started')
+  await new Promise((r) => setTimeout(r, 30))
+  assert.deepEqual(scenes, [], '后台房间不切主播的画面')
+
+  app.runner.push({ seq: 1, ts: Date.now(), type: 'LIVE_START', payload: {} }, 'live_started')
+  await new Promise((r) => setTimeout(r, 30))
+  assert.deepEqual(scenes, ['直播中'])
+})
+
+test('OBS：切换进行中发生反向边沿，等切完再补切，不能丢', async (t) => {
+  const scenes = []
+  let release
+  const gate = new Promise((resolve) => {
+    release = resolve
+  })
+  const createObs = () => ({
+    request: async (type, data) => {
+      scenes.push(data.sceneName);
+      if (scenes.length === 1) await gate;
+    },
+    close() {},
+  })
+  const { app } = makeApp(t, {
+    rooms: ['100'],
+    cfg: {
+      obsEnabled: true,
+      obsUrl: 'ws://127.0.0.1:4455',
+      obsLiveScene: '直播中',
+      obsOfflineScene: '闲聊',
+    },
+    createObs,
+  })
+  await app.start()
+
+  const runner = app.runner
+  runner.push({ seq: 1, ts: Date.now(), type: 'LIVE_START', payload: {} }, 'live_started')
+  await new Promise((r) => setTimeout(r, 10))
+  assert.equal(app._obsBusy, true, '第一次切换还连着')
+
+  runner.push({ seq: 2, ts: Date.now(), type: 'LIVE_END', payload: {} }, 'live_ended')
+  release()
+  await new Promise((r) => setTimeout(r, 60))
+  assert.deepEqual(scenes, ['直播中', '闲聊'], '反向边沿要在忙完后补切')
 })
 
 test('OBS：启动时坏地址整组忽略，不拿半套配置去连', async (t) => {

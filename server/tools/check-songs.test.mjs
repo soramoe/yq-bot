@@ -61,6 +61,21 @@ test('点歌：进队列、位置、重复不重复加', () => {
   assert.ok(pushSong(items, { song: '晴天' }, { ...sc('点歌 晴天'), seq: 4 }));
 });
 
+test('点歌：不同房间的同 seq 点歌不能生成同一个 id', () => {
+  const items = [];
+  const a = pushSong(items, { song: '晴天' }, { ...sc('点歌 晴天'), roomId: '100' });
+  const b = pushSong(items, { song: '后来' }, {
+    seq: 1,
+    ts: 1_700_000_000_000,
+    type: 'SUPER_CHAT',
+    roomId: '200',
+    payload: { uid: '43', uname: '乙', text: '点歌 后来', yuan: 30 },
+  });
+  assert.notEqual(a.id, b.id);
+  assert.match(a.id, /^s100-1-42$/);
+  assert.match(b.id, /^s200-1-43$/);
+});
+
 test('点歌：视图优先播放中，否则队首；queued 不含播放中', () => {
   const items = [
     { id: 'a', status: 'queued', song: 'A' },

@@ -2146,6 +2146,7 @@ async function mountPush({
   withWeek = false,
   fail = '',
   testResult = null,
+  deferGet = false,
 } = {}) {
   const { createPushConfig } = await import('../../web/views/push-config.js')
   const select = new FakeNode('select')
@@ -2156,8 +2157,14 @@ async function mountPush({
   const weekBox = withWeek ? new FakeNode('input') : null
   const saved = []
   const toasts = []
+  let releaseGet = null
   const api = {
-    push: async () => ({ ok: true, provider, target, weekly: week }),
+    push: () => {
+      if (!deferGet) return Promise.resolve({ ok: true, provider, target, weekly: week })
+      return new Promise((resolve) => {
+        releaseGet = () => resolve({ ok: true, provider, target, weekly: week })
+      })
+    },
     savePush: async (p, t, w) => {
       if (fail) throw new Error(fail)
       saved.push(w === undefined ? { provider: p, target: t } : { provider: p, target: t, weekly: w })
@@ -2175,7 +2182,18 @@ async function mountPush({
     api,
     toast: (text, level) => toasts.push({ text, level }),
   })
-  return { cfg, select, input, saveButton, testButton, hint, weekBox, saved, toasts }
+  return {
+    cfg,
+    select,
+    input,
+    saveButton,
+    testButton,
+    hint,
+    weekBox,
+    saved,
+    toasts,
+    releaseGet: () => releaseGet?.(),
+  }
 }
 
 test('手机推送：打开时回填渠道与目标，并切到对应的说明', async () => {
@@ -2224,6 +2242,25 @@ test('手机推送：保存失败保留输入，按钮恢复', async () => {
   assert.equal(saveButton.disabled, false)
   assert.match(toasts.at(-1).text, /写不进去/)
   assert.equal(toasts.at(-1).level, 'error')
+})
+
+test('手机推送：保存失败后在途的旧 load 也不能把输入改回去', async () => {
+  const { cfg, select, input, releaseGet, toasts } = await mountPush({
+    provider: 'ntfy',
+    target: 'yuyue3',
+    fail: '写不进去',
+    deferGet: true,
+  })
+
+  const loading = cfg.load()
+  select.value = 'bark'
+  input.value = 'newkey'
+  await cfg.save()
+  assert.match(toasts.at(-1).text, /写不进去/)
+
+  releaseGet()
+  await loading
+  assert.equal(input.value, 'newkey', '迟到的旧设置不能盖掉刚填的值')
 })
 
 test('手机推送：测试成功与失败都要给出明确结果', async () => {

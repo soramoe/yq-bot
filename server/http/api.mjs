@@ -699,10 +699,8 @@ export function buildRoutes(app) {
       return;
     }
 
-    const saved = {};
-    if (battery !== undefined) saved.battery = app.setBigSpendBattery(battery);
-    if (returnBattery !== undefined) saved.returnBattery = app.setPatronReturnBattery(returnBattery);
-    sendJson(res, { ok: true, ...saved });
+    // 两项一次写盘：分开存的话第二个失败会留下改了一半的配置
+    sendJson(res, { ok: true, ...app.setPatronsAlert({ battery, returnBattery }) });
   });
 
   /* SC 点歌队列。

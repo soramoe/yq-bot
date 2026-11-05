@@ -179,6 +179,7 @@ export class App {
     this.obsLiveScene = '';
     this.obsOfflineScene = '';
     this._obsBusy = false;
+    this._obsPending = null;
     this._obsLastScene = '';
 
     /**
@@ -877,6 +878,16 @@ export class App {
     const item = applySongAction(this.songQueue, id, action);
     if (!item) throw { status: 404, code: 'song_not_found', message: '队列里没有这首歌' };
 
+    // 先落盘再播报：写盘失败会整份回滚，弹幕却已经说了"接下来播放"，
+    // 观众听到的和页面显示的就对不上了。
+    try {
+      this._saveSongs();
+    } catch (err) {
+      this.songQueue = before;
+      this.log.warn(`[点歌] 保存队列失败：${err.message}`);
+      throw { status: 500, code: 'save_failed', message: '保存点歌队列失败：写不进 data/songs.json' };
+    }
+
     if (action === 'play') {
       const text = `接下来播放：${item.song}`;
       Promise.resolve(this.runner?.gate?.say?.({
@@ -887,14 +898,6 @@ export class App {
         priority: 1,
         maxWaitMs: 5000,
       })).catch((err) => this.log.warn(`[点歌] 播报失败：${err?.message ?? err}`));
-    }
-
-    try {
-      this._saveSongs();
-    } catch (err) {
-      this.songQueue = before;
-      this.log.warn(`[点歌] 保存队列失败：${err.message}`);
-      throw { status: 500, code: 'save_failed', message: '保存点歌队列失败：写不进 data/songs.json' };
     }
     this._broadcastSongs();
     return item;
@@ -1574,8 +1577,9 @@ export class App {
     this.log.info(`[提醒] ${text}`);
     // 手机推送与 webhook 相互独立：没配群机器人，手机一样能收到
     this._pushText(start ? '开播提醒' : '下播提醒', text);
-    // OBS 切场景同样不依赖 webhook：配了 OBS 就该跟着边沿切
-    this._switchObsScene(start);
+    // OBS 切场景同样不依赖 webhook：配了 OBS 就该跟着边沿切。
+    // 但只跟当前看的房间走 —— 后台房间下播不能把主播的画面切走。
+    if (this._isActive(room)) this._switchObsScene(start);
 
     const webhook = this.notifyWebhook;
     if (!webhook) return;
@@ -1916,7 +1920,13 @@ export class App {
    * 设置 OBS 场景联动。密码只进不出：读取接口用 passwordSet 表示设过没有。
    */
   setObsSettings({ enabled, url, password, clearPassword, liveScene, offlineScene } = {}) {
-    const nextEnabled = enabled === undefined ? this.obsEnabled : Boolean(enabled);
+    if (enabled !== undefined && typeof enabled !== 'boolean') {
+      throw Object.assign(new Error('OBS 联动开关只能是 true / false'), {
+        status: 400,
+        code: 'bad_obs',
+      });
+    }
+    const nextEnabled = enabled === undefined ? this.obsEnabled : enabled;
     const nextUrl = url === undefined ? this.obsUrl : String(url ?? '').trim();
     const nextLive = liveScene === undefined ? this.obsLiveScene : String(liveScene ?? '').trim();
     const nextOffline =
@@ -1946,6 +1956,7 @@ export class App {
       password: this.obsPassword,
       live: this.obsLiveScene,
       offline: this.obsOfflineScene,
+      lastScene: this._obsLastScene,
     };
     Object.assign(this, {
       obsEnabled: nextEnabled && Boolean(nextUrl),
@@ -1963,6 +1974,7 @@ export class App {
         obsLiveScene: before.live,
         obsOfflineScene: before.offline,
       });
+      this._obsLastScene = before.lastScene;
       throw Object.assign(new Error('保存 OBS 设置失败：写不进 data/app.json'), {
         status: 500,
         code: 'save_failed',
@@ -1989,7 +2001,17 @@ export class App {
     if (!this.obsEnabled || !this.obsUrl) return;
     const scene = start ? this.obsLiveScene : this.obsOfflineScene;
     if (!scene) return;
-    if (this._obsBusy || this._obsLastScene === scene) return;
+    // 正在连/切的时候只记下最新目标，别把反向边沿丢掉：
+    // 连接最长要 6-8 秒，这段时间里开播又关播的话，直接 return
+    // 会让 OBS 永远停在旧场景。
+    if (this._obsBusy) {
+      this._obsPending = start;
+      return;
+    }
+    if (this._obsLastScene === scene) {
+      this._obsPending = null;
+      return;
+    }
 
     this._obsBusy = true;
     Promise.resolve(this.createObs({ url: this.obsUrl, password: this.obsPassword }))
@@ -2007,6 +2029,9 @@ export class App {
       })
       .finally(() => {
         this._obsBusy = false;
+        const pending = this._obsPending;
+        this._obsPending = null;
+        if (pending !== null) this._switchObsScene(pending);
       });
   }
 
@@ -2063,6 +2088,7 @@ export class App {
    * 而"每周的数字"必须能从日志重新得出，不能依赖某次运行的内存状态。
    */
   async _sendWeeklyReport() {
+    if (!this.weeklyReport) return { ok: false, error: 'weekly off' };
     const room = this._activeRoom();
     const logReader = room?.runner?.log_;
     if (!room || !logReader) {
@@ -2111,23 +2137,7 @@ export class App {
    * 而且负数/小数会让比较逻辑变得难以解释。
    */
   setBigSpendBattery(battery) {
-    if (!Number.isInteger(battery) || battery < 0 || battery > MAX_BIG_SPEND_BATTERY) {
-      throw Object.assign(new Error('大额提醒阈值要写成 0 或正整数（单位：电池，0 = 关闭）'), {
-        status: 400,
-        code: 'bad_threshold',
-      });
-    }
-
-    const before = this.bigSpendBattery;
-    this.bigSpendBattery = battery;
-    if (!this._saveConfig()) {
-      this.bigSpendBattery = before;
-      throw Object.assign(new Error('保存大额提醒设置失败：写不进 data/app.json'), {
-        status: 500,
-        code: 'save_failed',
-      });
-    }
-    return this.bigSpendBattery;
+    return this.setPatronsAlert({ battery }).battery;
   }
 
   /**
@@ -2137,30 +2147,60 @@ export class App {
    * 留着的话改完要等下播才生效，页面会看起来"点了没反应"。
    */
   setPatronReturnBattery(battery) {
-    if (!Number.isInteger(battery) || battery < 0 || battery > MAX_BIG_SPEND_BATTERY) {
+    return this.setPatronsAlert({ returnBattery: battery }).returnBattery;
+  }
+
+  /**
+   * 大额与回访两项一起保存。
+   *
+   * 分开存的话，第二个写盘失败时第一个已经落盘、页面却只看到"保存失败"，
+   * 重启后才发现只改了一半。两项一次校验、一次落盘、失败一起回滚。
+   * 值没变就完全不敲盘，也避免清掉"这一场已经提醒过"的去重集。
+   */
+  setPatronsAlert({ battery, returnBattery } = {}) {
+    const nextBattery = battery === undefined ? this.bigSpendBattery : battery;
+    const nextReturn = returnBattery === undefined ? this.patronReturnBattery : returnBattery;
+    const validInt = (v) => Number.isInteger(v) && v >= 0 && v <= MAX_BIG_SPEND_BATTERY;
+
+    if (!validInt(nextBattery)) {
+      throw Object.assign(new Error('大额提醒阈值要写成 0 或正整数（单位：电池，0 = 关闭）'), {
+        status: 400,
+        code: 'bad_threshold',
+      });
+    }
+    if (!validInt(nextReturn)) {
       throw Object.assign(new Error('回访提醒门槛要写成 0 或正整数（单位：电池，0 = 关闭）'), {
         status: 400,
         code: 'bad_return',
       });
     }
 
-    const before = this.patronReturnBattery;
-    this.patronReturnBattery = battery;
+    const before = { battery: this.bigSpendBattery, ret: this.patronReturnBattery };
+    const retChanged = nextReturn !== before.ret;
+    if (nextBattery === before.battery && !retChanged) {
+      return { battery: this.bigSpendBattery, returnBattery: this.patronReturnBattery };
+    }
+
+    this.bigSpendBattery = nextBattery;
+    this.patronReturnBattery = nextReturn;
     if (!this._saveConfig()) {
-      this.patronReturnBattery = before;
-      throw Object.assign(new Error('保存回访提醒设置失败：写不进 data/app.json'), {
+      this.bigSpendBattery = before.battery;
+      this.patronReturnBattery = before.ret;
+      throw Object.assign(new Error('保存付费用户提醒设置失败：写不进 data/app.json'), {
         status: 500,
         code: 'save_failed',
       });
     }
 
-    this._patronIndex = null;
-    this._patronWarmKey = '';
-    this._patronSaid.clear();
-    this._warmPatrons().catch((err) =>
-      this.log.warn(`[回访] 改门槛后预热失败：${err?.message ?? err}`),
-    );
-    return this.patronReturnBattery;
+    if (retChanged) {
+      this._patronIndex = null;
+      this._patronWarmKey = '';
+      this._patronSaid.clear();
+      this._warmPatrons().catch((err) =>
+        this.log.warn(`[回访] 改门槛后预热失败：${err?.message ?? err}`),
+      );
+    }
+    return { battery: this.bigSpendBattery, returnBattery: this.patronReturnBattery };
   }
 
   /**

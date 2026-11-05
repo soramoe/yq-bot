@@ -86,8 +86,11 @@ export function pushSong(items, request, ev, { now = Date.now(), max = MAX_SONG_
   );
   if (dup) return null;
 
+  const roomId = String(ev.roomId ?? '').trim();
   const item = {
-    id: `s${ev.seq}-${uid}`,
+    // 队列是全机器一份，但 seq 是各房间自己的；带上房间号才不会让
+    // 两个房间的第 100 条 SC 生成同一个 id、页面删错行。
+    id: roomId ? `s${roomId}-${ev.seq}-${uid}` : `s${ev.seq}-${uid}`,
     seq: Number(ev.seq) || 0,
     ts: Number(ev.ts) || now,
     uid,

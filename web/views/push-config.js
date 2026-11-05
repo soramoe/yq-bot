@@ -87,6 +87,8 @@ export function createPushConfig({ select, input, saveButton, testButton, hint, 
     }
 
     saving = true;
+    // 作废在途的 load：否则迟到的旧设置会盖掉这次输入（保存失败时更糟）
+    ++loadSeq;
     if (saveButton) saveButton.disabled = true;
     if (testButton) testButton.disabled = true;
     try {
