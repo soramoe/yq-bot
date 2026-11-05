@@ -1758,6 +1758,37 @@ test('接口：GET/POST /api/goal 校验整数并落盘', async (t) => {
 
 /* ══════════════════ 付费用户回访 ══════════════════ */
 
+test('回访提醒：超过 90 天的付费不算进累计，只报窗口内的金额', async (t) => {
+  const { app } = makeApp(t, { rooms: ['100'], cfg: { patronReturnBattery: 40 } })
+  await app.start()
+
+  const runner = app.runner
+  const start = 1_700_000_000_000
+  runner.projection = {
+    session: { id: 's1', startedAt: start },
+    snapshot: () => ({ sessionId: 's1' }),
+  }
+  runner.log_ = {
+    // 100 天前付过 600 电池（窗口外，不能算），本场前刚付了 50 电池
+    readAllAsync: async () => [
+      { seq: 1, ts: start - 100 * 86_400_000, type: 'GIFT', payload: { uid: '7', uname: '甲', battery: 600 } },
+      { seq: 2, ts: start - 1_000, type: 'GIFT', payload: { uid: '7', uname: '甲', battery: 50 } },
+    ],
+  }
+
+  await app._warmPatrons()
+
+  const notices = []
+  app.subscribe((msg) => {
+    if (msg.type === 'notice') notices.push(msg.data.text)
+  })
+
+  runner.push({ seq: 11, ts: start + 100, type: 'ENTER', payload: { uid: '7', uname: '甲' } })
+  assert.equal(notices.length, 1, '窗口内的 50 电池过了 40 的门槛，要提醒')
+  assert.match(notices[0], /近 90 天累计 ¥5）/, '只算窗口内的 50 电池，不能把 100 天前的 600 也算进来')
+  assert.doesNotMatch(notices[0], /¥65/)
+})
+
 test('回访提醒：这场之前付过钱的观众再进房，只响一次；没到门槛的不响', async (t) => {
   const { app } = makeApp(t, { rooms: ['100'], cfg: { patronReturnBattery: 500 } })
   await app.start()

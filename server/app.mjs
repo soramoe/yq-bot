@@ -2268,8 +2268,10 @@ export class App {
       const byUid = new Map();
       for (const ev of all) {
         const ts = Number(ev?.ts) || 0;
-        // 本场之内的付费不算"回访"，那是正在发生的事
-        if (!ts || ts >= start) continue;
+        // 只累计"本场之前、回看窗口以内"的付费：
+        // 本场之内的付费不算回访；窗口之外的旧付款也不能算进
+        // 「近 90 天累计」—— 否则两年前的一笔大额会把今天的门槛撑过去。
+        if (!ts || ts < since || ts >= start) continue;
         const type = ev?.type;
         if (type !== 'GIFT' && type !== 'GUARD_BUY' && type !== 'SUPER_CHAT') continue;
 
