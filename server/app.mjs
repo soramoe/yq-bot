@@ -24,8 +24,11 @@ import { buildScQueue, MAX_READ_IDS } from './core/sc-queue.mjs';
 import { MAX_GOAL_BATTERY, goalMilestone, goalText } from './core/goal.mjs';
 import {
   MAX_BIG_SPEND_BATTERY,
+  PATRON_RETURN_DAYS,
   bigSpendText,
+  moneyText,
   paidBatteryOf,
+  patronNameOf,
 } from './core/patrons.mjs';
 import { verifyCookie } from './bili/login.mjs';
 
@@ -154,6 +157,22 @@ export class App {
 
     /** 已经播报过的里程碑：`<房间>:<场次>:<百分比>`，防同一场重复喊 */
     this._goalSaid = new Set();
+
+    /**
+     * 付费用户回访提醒的累计门槛（电池，0 = 关闭）。
+     *
+     * "回访"只看**这场开播之前**的付费记录：本场刚送过礼的人不算回访，
+     * 那是正在发生的事，大额提醒/答谢已经在处理了。
+     * 数据来自日志重放（投影的场次明细只保留礼物，舰长/SC 看不到）。
+     */
+    this.patronReturnBattery = 0;
+
+    /** 当前场次的回访索引：{ key, map }。懒加载，换场/改门槛后重建 */
+    this._patronIndex = null;
+    /** 正在预热/已预热的 key，防止 ENTER 洪峰时重复读日志 */
+    this._patronWarmKey = '';
+    /** 同一场同一个人只提醒一次 */
+    this._patronSaid = new Set();
 
     /**
      * SC 待读：已读事件 id 集合。懒加载，读失败就当全没读过。
@@ -288,6 +307,21 @@ export class App {
     if (typeof cfg.giftGoalAnnounce === 'boolean') this.giftGoalAnnounce = cfg.giftGoalAnnounce;
     // 目标为 0 时没有"过线"可播报，开关跟着关掉，避免留下一个永远不生效的 true
     if (!this.giftGoalBattery) this.giftGoalAnnounce = false;
+
+    // 回访提醒门槛：0..MAX 的整数，写坏了就当没配（0=关）
+    if (cfg.patronReturnBattery !== undefined) {
+      if (
+        Number.isInteger(cfg.patronReturnBattery) &&
+        cfg.patronReturnBattery >= 0 &&
+        cfg.patronReturnBattery <= MAX_BIG_SPEND_BATTERY
+      ) {
+        this.patronReturnBattery = cfg.patronReturnBattery;
+      } else {
+        this.log.warn(
+          '[配置] data/app.json 里的 patronReturnBattery 无效（0..1000000000 的整数），已忽略',
+        );
+      }
+    }
 
     mkdirSync(this.dataDir, { recursive: true });
 
@@ -518,6 +552,7 @@ export class App {
         notifyWebhook: this.notifyWebhook,
         notifyReport: this.notifyReport,
         bigSpendBattery: this.bigSpendBattery,
+        patronReturnBattery: this.patronReturnBattery,
         giftGoalBattery: this.giftGoalBattery,
         giftGoalAnnounce: this.giftGoalAnnounce,
       },
@@ -787,6 +822,10 @@ export class App {
       this._pushStats();
     }
     this._saveConfig();
+    // 切到哪间就预热哪间的回访索引；不 await，读日志不该挡住切房
+    this._warmPatrons().catch((err) =>
+      this.log.warn(`[回访] 预热失败：${err?.message ?? err}`),
+    );
     return this;
   }
 
@@ -1227,6 +1266,16 @@ export class App {
     this._notifyBigSpend(room, rec);
     // 礼物目标同样挂在内核层：插件关掉不影响"本场进度走到哪"
     this._notifyGoal(room, rec);
+    // 回访看的是"这场之前"的付费记录；新场次开始后旧索引立刻作废
+    if (rec.type === 'LIVE_START') {
+      this._patronIndex = null;
+      this._patronWarmKey = '';
+      this._patronSaid.clear();
+      this._warmPatrons().catch((err) =>
+        this.log.warn(`[回访] 新场次预热失败：${err?.message ?? err}`),
+      );
+    }
+    this._notifyPatronReturn(room, rec);
   }
 
   /**
@@ -1542,6 +1591,138 @@ export class App {
       });
     }
     return this.bigSpendBattery;
+  }
+
+  /**
+   * 设置付费用户回访提醒的累计门槛（电池，0 = 关闭）。
+   *
+   * 改门槛后旧索引立刻作废：索引是按"门槛以上的 uid"筛过的，
+   * 留着的话改完要等下播才生效，页面会看起来"点了没反应"。
+   */
+  setPatronReturnBattery(battery) {
+    if (!Number.isInteger(battery) || battery < 0 || battery > MAX_BIG_SPEND_BATTERY) {
+      throw Object.assign(new Error('回访提醒门槛要写成 0 或正整数（单位：电池，0 = 关闭）'), {
+        status: 400,
+        code: 'bad_return',
+      });
+    }
+
+    const before = this.patronReturnBattery;
+    this.patronReturnBattery = battery;
+    if (!this._saveConfig()) {
+      this.patronReturnBattery = before;
+      throw Object.assign(new Error('保存回访提醒设置失败：写不进 data/app.json'), {
+        status: 500,
+        code: 'save_failed',
+      });
+    }
+
+    this._patronIndex = null;
+    this._patronWarmKey = '';
+    this._patronSaid.clear();
+    this._warmPatrons().catch((err) =>
+      this.log.warn(`[回访] 改门槛后预热失败：${err?.message ?? err}`),
+    );
+    return this.patronReturnBattery;
+  }
+
+  /**
+   * 预热当前房间的回访索引：把"本场开始之前、近 90 天内付过钱"的 uid
+   * 从日志里捞出来，缓存到这一场结束。
+   *
+   * 只做当前房间：提醒是给正在看的这间用的；后台房间的 ENTER 也会走
+   * `_notifyPatronReturn`，但索引对不上场次就会安静跳过。
+   */
+  async _warmPatrons() {
+    const threshold = this.patronReturnBattery;
+    if (!threshold) return;
+
+    const room = this._activeRoom();
+    const runner = room?.runner;
+    const log = runner?.log_;
+    const session = runner?.projection?.session;
+    if (!log || !session?.id) return;
+
+    const start = Number(session.startedAt) || 0;
+    if (!start) return;
+
+    const key = `${room.key}:${session.id}:${threshold}`;
+    if (this._patronWarmKey === key) return;
+    this._patronWarmKey = key;
+
+    const since = start - PATRON_RETURN_DAYS * 86400000;
+    try {
+      const all = await log.readAllAsync();
+      // 等待期间可能切房/换场/改门槛：结果只给最后发起的那一次
+      if (this._patronWarmKey !== key) return;
+
+      const byUid = new Map();
+      for (const ev of all) {
+        const ts = Number(ev?.ts) || 0;
+        // 本场之内的付费不算"回访"，那是正在发生的事
+        if (!ts || ts >= start) continue;
+        const type = ev?.type;
+        if (type !== 'GIFT' && type !== 'GUARD_BUY' && type !== 'SUPER_CHAT') continue;
+
+        const p = ev.payload ?? {};
+        const uid = String(p.uid ?? '').trim();
+        if (!uid || uid === '0') continue;
+
+        const battery = paidBatteryOf(ev);
+        if (!(battery > 0)) continue;
+
+        const row = byUid.get(uid) ?? { total: 0, lastTs: 0, name: '' };
+        row.total += battery;
+        if (ts >= row.lastTs) {
+          row.lastTs = ts;
+          const name = patronNameOf(ev);
+          if (name) row.name = name;
+        }
+        byUid.set(uid, row);
+      }
+
+      const map = new Map();
+      for (const [uid, row] of byUid) {
+        if (row.total >= threshold && row.lastTs >= since) map.set(uid, row);
+      }
+      this._patronIndex = { key, map };
+    } catch (err) {
+      this.log.warn(`[回访] 读取历史付费用户失败：${err?.message ?? err}`);
+    }
+  }
+
+  /**
+   * 付费用户回访：只在 ENTER 上判断，同一场同一个人只响一次。
+   *
+   * 页内提示就够：这是给主播自己看的信息，不往外发 webhook，
+   * 免得"老观众来了"和真正的开播/大额通知混在群里。
+   */
+  _notifyPatronReturn(room, rec) {
+    const threshold = this.patronReturnBattery;
+    if (!threshold || rec?.type !== 'ENTER') return;
+
+    const p = rec.payload ?? {};
+    const uid = String(p.uid ?? '').trim();
+    if (!uid || uid === '0') return;
+
+    const idx = this._patronIndex;
+    if (!idx) return;
+    const sessionId = room?.runner?.projection?.session?.id;
+    if (!sessionId || idx.key !== `${room.key}:${sessionId}:${threshold}`) return;
+
+    const hit = idx.map.get(uid);
+    if (!hit) return;
+
+    const saidKey = `${room.key}:${sessionId}:${uid}`;
+    if (this._patronSaid.has(saidKey)) return;
+    this._patronSaid.add(saidKey);
+    if (this._patronSaid.size > 1000) this._patronSaid.clear();
+
+    const roomId = room.runner?.realRoomId || room.key;
+    const name = patronNameOf(rec) || hit.name || `uid ${uid}`;
+    const text = `【回访】房间 ${roomId} · ${name} 回来了（近 ${PATRON_RETURN_DAYS} 天累计 ¥${moneyText(hit.total)}）`;
+    this._emit({ type: 'notice', data: { level: 'info', text } });
+    this.log.info(`[回访] ${text}`);
   }
 
   /**

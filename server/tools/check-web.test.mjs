@@ -1538,6 +1538,7 @@ const PATRON_DATA = {
   to: 0,
   scanned: 3,
   bigSpendBattery: 5_000,
+  returnBattery: 3_000,
   patrons: [
     {
       uid: '1',
@@ -1580,10 +1581,11 @@ async function mountPatrons(t, { data = PATRON_DATA, fail = '', deferGet = false
       return { ok: true, status: 200, json: async () => ({ ok: true, ...data }) };
     }
     if (path === '/api/patrons/alert') {
+      const body = JSON.parse(init.body);
       return {
         ok: true,
         status: 200,
-        json: async () => ({ ok: true, battery: JSON.parse(init.body).battery }),
+        json: async () => ({ ok: true, battery: body.battery, returnBattery: body.returnBattery ?? 0 }),
       };
     }
     return { ok: false, status: 404, json: async () => ({ ok: false, error: { message: '没有这个接口' } }) };
@@ -1621,6 +1623,7 @@ test('付费用户榜：打开就拉最近 30 天，榜单和阈值都回填', a
   assert.match(dlg.all('patron-row')[0].textContent, /甲/)
   assert.match(dlg.all('patron-row')[0].textContent, /¥200/)
   assert.equal(dlg.all('patron-num')[0].value, '500', '阈值 5000 电池 = ¥500')
+  assert.equal(dlg.all('patron-num')[1].value, '300', '回访门槛 3000 电池 = ¥300')
 });
 
 test('付费用户榜：切范围会按新的 days 重新拉', async (t) => {
@@ -1654,7 +1657,11 @@ test('付费用户榜：阈值输入用元，发给服务端的是电池', async
   await new Promise((r) => setImmediate(r));
 
   const post = calls.find((c) => c.method === 'POST');
-  assert.deepEqual(post.body, { battery: 10_000 }, '¥1000 = 10000 电池')
+  assert.deepEqual(
+    post.body,
+    { battery: 10_000, returnBattery: 3_000 },
+    '¥1000 = 10000 电池；回访门槛一并提交',
+  )
   assert.match(toasts.at(-1).text, /¥1000/)
 });
 

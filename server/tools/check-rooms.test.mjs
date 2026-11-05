@@ -1396,6 +1396,7 @@ test('接口：GET /api/patrons 返回榜单、合计与大额阈值', async (t)
   assert.equal(data.patrons[0].name, '甲')
   assert.equal(data.totals.totalBattery, 2_500)
   assert.equal(data.bigSpendBattery, 8_800)
+  assert.equal(data.returnBattery, 0, '没配回访门槛时应当是 0（关闭）')
 })
 
 test('接口：POST /api/patrons/alert 校验类型并保存', async (t) => {
@@ -1424,6 +1425,14 @@ test('接口：POST /api/patrons/alert 校验类型并保存', async (t) => {
   assert.equal(ok.statusCode, 200)
   assert.equal(JSON.parse(ok.body).battery, 10_000)
   assert.equal(JSON.parse(readFileSync(join(dataDir, 'app.json'), 'utf8')).bigSpendBattery, 10_000)
+
+  const ret = await post({ returnBattery: 5_000 })
+  assert.equal(ret.statusCode, 200)
+  assert.equal(JSON.parse(ret.body).returnBattery, 5_000)
+  assert.equal(JSON.parse(readFileSync(join(dataDir, 'app.json'), 'utf8')).patronReturnBattery, 5_000)
+
+  const badRet = await post({ returnBattery: '5000' })
+  assert.equal(badRet.statusCode, 400, '回访门槛同样只收整数')
 })
 
 test('接口：GET /api/sc 返回 SC 清单；房间没起来时明确 503', async (t) => {
@@ -1650,4 +1659,78 @@ test('接口：GET/POST /api/goal 校验整数并落盘', async (t) => {
   const cleared = await post({ goalBattery: 0, announce: true })
   assert.equal(cleared.statusCode, 200)
   assert.equal(JSON.parse(cleared.body).announce, false, '目标清零时播报也要关，不能留下假开关')
+})
+
+/* ══════════════════ 付费用户回访 ══════════════════ */
+
+test('回访提醒：这场之前付过钱的观众再进房，只响一次；没到门槛的不响', async (t) => {
+  const { app } = makeApp(t, { rooms: ['100'], cfg: { patronReturnBattery: 500 } })
+  await app.start()
+
+  const runner = app.runner
+  const start = 1_700_000_000_000
+  runner.projection = {
+    session: { id: 's1', startedAt: start },
+    snapshot: () => ({ sessionId: 's1' }),
+  }
+  runner.log_ = {
+    // 900ms 之前：付过 600 电池（过线）；100 电池的没到门槛
+    readAllAsync: async () => [
+      { seq: 1, ts: start - 900, type: 'GIFT', payload: { uid: '7', uname: '甲', battery: 600 } },
+      { seq: 2, ts: start - 800, type: 'SUPER_CHAT', payload: { uid: '8', uname: '乙', battery: 100 } },
+    ],
+  }
+
+  await app._warmPatrons()
+
+  const notices = []
+  app.subscribe((msg) => {
+    if (msg.type === 'notice') notices.push(msg.data.text)
+  })
+
+  runner.push({ seq: 11, ts: start + 100, type: 'ENTER', payload: { uid: '7', uname: '甲' } })
+  assert.equal(notices.length, 1, '过了门槛的回访要提醒')
+  assert.match(notices[0], /【回访】房间 1000100 · 甲 回来了/)
+  assert.match(notices[0], /¥60/)
+
+  // 同一场同一个人再进一次（重连补发 / 反复进出）不能又响
+  runner.push({ seq: 12, ts: start + 200, type: 'ENTER', payload: { uid: '7', uname: '甲' } })
+  assert.equal(notices.length, 1, '同一场同一人只响一次')
+
+  // 没到门槛的付费用户不算"值得提醒的回访"
+  runner.push({ seq: 13, ts: start + 300, type: 'ENTER', payload: { uid: '8', uname: '乙' } })
+  assert.equal(notices.length, 1)
+})
+
+test('回访提醒：0 = 关闭；改门槛后旧索引作废', async (t) => {
+  const { app, dataDir } = makeApp(t, { rooms: ['100'], cfg: { patronReturnBattery: 0 } })
+  await app.start()
+
+  const runner = app.runner
+  const start = 1_700_000_000_000
+  runner.projection = { session: { id: 's1', startedAt: start } }
+  runner.log_ = {
+    readAllAsync: async () => [
+      { seq: 1, ts: start - 500, type: 'GIFT', payload: { uid: '7', uname: '甲', battery: 900 } },
+    ],
+  }
+
+  const notices = []
+  app.subscribe((msg) => {
+    if (msg.type === 'notice') notices.push(msg.data.text)
+  })
+
+  runner.push({ seq: 11, ts: start + 100, type: 'ENTER', payload: { uid: '7', uname: '甲' } })
+  assert.equal(notices.length, 0, '0 时完全不提醒')
+
+  // 改门槛后立刻生效（索引要按新门槛重建）
+  app.setPatronReturnBattery(500)
+  // setPatronReturnBattery 内部异步预热；等它读完再进房
+  await new Promise((r) => setImmediate(r))
+  runner.push({ seq: 12, ts: start + 200, type: 'ENTER', payload: { uid: '7', uname: '甲' } })
+  assert.equal(notices.length, 1)
+
+  // 回访门槛要落盘，重启后才不用重配
+  const cfg = JSON.parse(readFileSync(join(dataDir, 'app.json'), 'utf8'))
+  assert.equal(cfg.patronReturnBattery, 500)
 })

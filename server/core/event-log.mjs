@@ -140,6 +140,16 @@ export class EventLog {
     // 必须在上面两个标志之后调用：_recoverSeq 会写 _recoveredByScan
     this._seq = this._recoverSeq()
     this._appended = 0
+    /**
+     * 全量读取缓存：{ key, events }。
+     *
+     * 报表、付费用户榜、SC 待读、对账都会全量读一遍；直播中每点一次
+     * 就要把同一批文件重新解析一遍，几千条时是几十毫秒、几万条时能到秒级。
+     * 文件列表 + 每个分片的 size/mtime 不变就复用上一份结果。
+     */
+    this._readCache = null
+    this._readCacheHits = 0
+    this._readCacheMisses = 0
   }
 
   get lastSeq() {
@@ -290,6 +300,8 @@ export class EventLog {
     }
     appendFileSync(this._fileFor(ts), JSON.stringify(event) + '\n', 'utf8')
     this._appended++
+    // 新事件一定让旧缓存失效（key 里的 size 也会变，这里只是不依赖它）
+    this._readCache = null
     return event
   }
 
@@ -307,7 +319,40 @@ export class EventLog {
    * 弹幕、心跳、WS 推送全部排队。用 `readAllAsync()`。
    * 保留它只是因为启动时的重放需要一个确定性的同步点。
    */
+  /** 缓存键：分片列表 + 每个文件的 size/mtime。任何一次追加/归档都会变 */
+  _cacheKey() {
+    try {
+      return this._shards()
+        .map((s) => {
+          const st = statSync(s.path)
+          return `${s.day}:${st.size}:${st.mtimeMs}`
+        })
+        .join('|')
+    } catch {
+      // stat 失败（归档/删除并发）时不缓存，宁可多读一次
+      return ''
+    }
+  }
+
+  _takeCache(key) {
+    if (key && this._readCache?.key === key) {
+      this._readCacheHits++
+      // 返回副本：调用方可能排序/过滤，不能让他们改到缓存里的数组
+      return this._readCache.events.slice()
+    }
+    this._readCacheMisses++
+    return null
+  }
+
+  _putCache(key, events) {
+    if (key) this._readCache = { key, events }
+  }
+
   readAll() {
+    const keyBefore = this._cacheKey()
+    const cached = this._takeCache(keyBefore)
+    if (cached) return cached
+
     const out = []
     let badLines = 0
     for (const shard of this._shards()) {
@@ -317,6 +362,8 @@ export class EventLog {
     }
     out.sort((a, b) => a.seq - b.seq)
     this._afterRead(out, badLines)
+    // 读取期间又有追加时 key 会变：这份结果不完整，不能进缓存
+    if (this._cacheKey() === keyBefore) this._putCache(keyBefore, out)
     return out
   }
 
@@ -331,6 +378,10 @@ export class EventLog {
    * 想要更省就得把 reconcile 也改成流式 reduce，那是另一件事。
    */
   async readAllAsync() {
+    const keyBefore = this._cacheKey()
+    const cached = this._takeCache(keyBefore)
+    if (cached) return cached
+
     const out = []
     let badLines = 0
     for (const shard of this._shards()) {
@@ -362,6 +413,7 @@ export class EventLog {
     }
     out.sort((a, b) => a.seq - b.seq)
     this._afterRead(out, badLines)
+    if (this._cacheKey() === keyBefore) this._putCache(keyBefore, out)
     return out
   }
 
@@ -414,6 +466,9 @@ export class EventLog {
       recoveredByScan: this._recoveredByScan,
       /** readAll 校准过几次 seq 计数器（正常应为 0） */
       seqRepaired: this._seqRepaired,
+      /** 全量读取缓存命中/未命中次数（排查"为什么还是慢"用） */
+      readCacheHits: this._readCacheHits ?? 0,
+      readCacheMisses: this._readCacheMisses ?? 0,
     }
   }
 
@@ -468,6 +523,8 @@ export class EventLog {
       }
     }
 
+    // 归档改变了分片列表；即使某个文件没动，key 也可能只是碰巧相同
+    if (archived.length) this._readCache = null
     return { archived, skipped, cutoffDay }
   }
 

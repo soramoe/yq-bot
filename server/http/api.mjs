@@ -14,7 +14,7 @@ import { buildReports, summarizeReports, auditReports, buildDailySeries } from '
 import { buildReportHtml, reportFileName } from '../core/export-report.mjs';
 import { buildTimeline, normalizeStep } from '../core/timeline.mjs';
 import { replay } from '../core/sandbox.mjs';
-import { buildPatrons } from '../core/patrons.mjs';
+import { MAX_BIG_SPEND_BATTERY, buildPatrons } from '../core/patrons.mjs';
 import { buildScQueue } from '../core/sc-queue.mjs';
 import { MAX_GOAL_BATTERY } from '../core/goal.mjs';
 
@@ -577,18 +577,43 @@ export function buildRoutes(app) {
       ok: true,
       ...data,
       bigSpendBattery: app.bigSpendBattery ?? 0,
+      returnBattery: app.patronReturnBattery ?? 0,
     });
   });
 
   /* 单笔大额提醒的阈值。单位是电池：1 元 = 10 电池，0 = 关闭。 */
   r.post('/api/patrons/alert', async ({ req, res }) => {
     const body = await readJson(req);
-    if (typeof body?.battery !== 'number') {
-      sendError(res, 400, 'bad_request', '需要 { "battery": 10000 }（单位：电池，0 = 关闭）');
+    const hasBattery = body?.battery !== undefined;
+    const hasReturn = body?.returnBattery !== undefined;
+    if (!hasBattery && !hasReturn) {
+      sendError(
+        res,
+        400,
+        'bad_request',
+        '需要 { "battery": 10000, "returnBattery": 5000 }（单位：电池，0 = 关闭）',
+      );
       return;
     }
-    const battery = app.setBigSpendBattery(body.battery);
-    sendJson(res, { ok: true, battery });
+
+    // 先把两个值都验完再落盘：只存一半会让页面显示"都存了"，重启后才发现少一个
+    const battery = hasBattery ? body.battery : undefined;
+    const returnBattery = hasReturn ? body.returnBattery : undefined;
+    const validInt = (v) => Number.isInteger(v) && v >= 0 && v <= MAX_BIG_SPEND_BATTERY;
+    if ((battery !== undefined && !validInt(battery)) || (returnBattery !== undefined && !validInt(returnBattery))) {
+      sendError(
+        res,
+        400,
+        'bad_request',
+        '需要 { "battery": 10000, "returnBattery": 5000 }（单位：电池，0 = 关闭）',
+      );
+      return;
+    }
+
+    const saved = {};
+    if (battery !== undefined) saved.battery = app.setBigSpendBattery(battery);
+    if (returnBattery !== undefined) saved.returnBattery = app.setPatronReturnBattery(returnBattery);
+    sendJson(res, { ok: true, ...saved });
   });
 
   /* 醒目留言待读清单。

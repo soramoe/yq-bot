@@ -231,6 +231,30 @@ test('事件日志：readAllAsync 与 readAll 逐条一致（含坏行计数）'
   )
 })
 
+test('事件日志：同一批文件重复全量读走缓存，追加后立刻失效', async (t) => {
+  const dir = tmp(t)
+  const log = new EventLog({ root: dir, roomId: ROOM })
+  for (let i = 0; i < 20; i++) log.append('DANMAKU', { uid: i }, { ts: Date.now() })
+
+  const first = await log.readAllAsync()
+  assert.equal(first.length, 20)
+  const hitsBefore = log.stats().readCacheHits
+
+  const second = await log.readAllAsync()
+  assert.deepEqual(second, first, '命中缓存时内容必须与首次一致')
+  assert.equal(log.stats().readCacheHits, hitsBefore + 1, '第二次应当命中缓存')
+
+  // 缓存返回副本：调用方顺手 push 不能污染下一次读取
+  second.push({ seq: 999 })
+  assert.equal((await log.readAllAsync()).length, 20, '改返回值不能改到缓存里的数组')
+
+  // 追加之后 key 变了，必须重新读，不能拿到少一条的旧结果
+  const added = log.append('DANMAKU', { uid: 20 }, { ts: Date.now() })
+  const fourth = await log.readAllAsync()
+  assert.equal(fourth.length, 21)
+  assert.equal(fourth.at(-1).seq, added.seq, '追加的事件必须立刻读得到')
+})
+
 test('事件日志：异步读取跨天多分片也按 seq 升序', async (t) => {
   const dir = tmp(t)
   const log = new EventLog({ root: dir, roomId: ROOM })

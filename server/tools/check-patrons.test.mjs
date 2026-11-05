@@ -11,8 +11,10 @@ import assert from 'node:assert/strict'
 
 import {
   MAX_BIG_SPEND_BATTERY,
+  PATRON_RETURN_DAYS,
   bigSpendText,
   buildPatrons,
+  moneyText,
   paidBatteryOf,
   patronNameOf,
 } from '../core/patrons.mjs'
@@ -39,6 +41,16 @@ test('名字：优先 uname，其次 name，两端空白去掉', () => {
   assert.equal(patronNameOf(ev(1, 'GIFT', { name: '乙' })), '乙')
   assert.equal(patronNameOf(ev(1, 'GIFT', { uname: '   ', name: '丙' })), '丙', 'uname 是空白串也要回落')
   assert.equal(patronNameOf(ev(1, 'GIFT', {})), '')
+})
+
+/* ══════════════════ 回访口径 ══════════════════ */
+
+test('回访：金额文案与 90 天窗口常量都按同一口径导出', () => {
+  assert.equal(PATRON_RETURN_DAYS, 90)
+  assert.equal(moneyText(0), '0')
+  assert.equal(moneyText(10), '1')
+  assert.equal(moneyText(25), '2.5')
+  assert.equal(moneyText(2_000), '200')
 })
 
 /* ══════════════════ 大额文案 ══════════════════ */

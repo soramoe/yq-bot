@@ -33,6 +33,8 @@ export function createPatrons({ dlg, toast }) {
   let loadSeq = 0;
   /** 输入框里当前显示的阈值（电池）；保存成功会递增版本号 */
   let shownThresholdBattery = 0;
+  /** 回访提醒门槛（电池）；与单笔大额共用一次保存 */
+  let shownReturnBattery = 0;
   let thresholdVersion = 0;
   /** 这次 load 发出时的保存版本：之后又保存过，旧响应就不能回滚输入框 */
   let loadVersion = 0;
@@ -60,6 +62,13 @@ export function createPatrons({ dlg, toast }) {
     class: 'patron-num',
     attrs: { type: 'number', min: '0', step: '0.1', inputmode: 'decimal' },
   });
+  const returnInput = el('input', {
+    class: 'patron-num',
+    attrs: { type: 'number', min: '0', step: '0.1', inputmode: 'decimal' },
+  });
+  // 榜单还没回来就点保存时，空串会被当成"没填"而拒绝；默认显示 0 更符合直觉
+  alertInput.value = '0';
+  returnInput.value = '0';
   const alertSave = el('button', {
     class: 'btn',
     text: '保存',
@@ -72,18 +81,26 @@ export function createPatrons({ dlg, toast }) {
       el('label', { class: 'patron-alert-label', text: '单笔大额提醒：满 ¥' }),
       alertInput,
       el('span', { class: 'patron-alert-unit', text: '时提醒' }),
+    ],
+  });
+
+  const returnRow = el('div', { class: 'patron-alert' }, {
+    children: [
+      el('label', { class: 'patron-alert-label', text: '回访提醒：近 90 天累计满 ¥' }),
+      returnInput,
+      el('span', { class: 'patron-alert-unit', text: '时提醒（只在本场第一次进房）' }),
       alertSave,
     ],
   });
 
   const alertHint = el('p', {
     class: 'patron-hint',
-    text: '0 = 关闭。只按单笔判断：一条礼物 / 一次上舰 / 一条醒目留言。配了 webhook 就一起外发，否则只弹页内提示。',
+    text: '0 = 关闭。大额只按单笔判断；回访只看这场开播之前的付费记录（同一场同一人只响一次，不往外发 webhook）。',
   });
 
   replaceChildren(dlg, [
     el('div', { class: 'patron-wrap' }, {
-      children: [head, chipRow, summaryBox, listBox, alertRow, alertHint],
+      children: [head, chipRow, summaryBox, listBox, alertRow, returnRow, alertHint],
     }),
   ]);
 
@@ -177,8 +194,10 @@ export function createPatrons({ dlg, toast }) {
     // 否则这个迟到的响应会把刚输入的阈值改回旧值。
     if (loadVersion === thresholdVersion) {
       shownThresholdBattery = Number(data?.bigSpendBattery) || 0;
+      shownReturnBattery = Number(data?.returnBattery) || 0;
     }
     alertInput.value = String(shownThresholdBattery / 10);
+    returnInput.value = String(shownReturnBattery / 10);
   }
 
   async function load() {
@@ -208,31 +227,43 @@ export function createPatrons({ dlg, toast }) {
   }
 
   async function saveAlert() {
-    const rawValue = alertInput.value.trim();
-    // 空串会被 Number('') 变成 0 —— 不能把"清空输入框"当成"关掉提醒"
-    if (rawValue === '') {
-      toast('提醒阈值要写成 0 或正数（单位：元）', 'error');
-      return;
-    }
-    const yuanValue = Number(rawValue);
-    if (!Number.isFinite(yuanValue) || yuanValue < 0) {
-      toast('提醒阈值要写成 0 或正数（单位：元）', 'error');
-      return;
-    }
+    const parseYuan = (input, label) => {
+      const rawValue = input.value.trim();
+      // 空串会被 Number('') 变成 0 —— 不能把"清空输入框"当成"关掉提醒"
+      if (rawValue === '') {
+        toast(`${label}要写成 0 或正数（单位：元）`, 'error');
+        return null;
+      }
+      const yuanValue = Number(rawValue);
+      if (!Number.isFinite(yuanValue) || yuanValue < 0) {
+        toast(`${label}要写成 0 或正数（单位：元）`, 'error');
+        return null;
+      }
+      // 页面用元输入，接口收电池：1 元 = 10 电池。这里只做一次换算
+      return Math.round(yuanValue * 10);
+    };
 
-    // 页面用元输入，接口收电池：1 元 = 10 电池。这里只做一次换算
-    const batteryValue = Math.round(yuanValue * 10);
+    const batteryValue = parseYuan(alertInput, '提醒阈值');
+    if (batteryValue === null) return;
+    const returnBatteryValue = parseYuan(returnInput, '回访提醒门槛');
+    if (returnBatteryValue === null) return;
 
     alertSave.disabled = true;
     try {
-      const r = await api.saveBigSpend(batteryValue);
+      const r = await api.saveBigSpend(batteryValue, returnBatteryValue);
       shownThresholdBattery = Number(r.battery) || 0;
+      shownReturnBattery = Number(r.returnBattery) || 0;
       thresholdVersion += 1;
       alertInput.value = String(shownThresholdBattery / 10);
-      toast(
+      returnInput.value = String(shownReturnBattery / 10);
+      const parts = [];
+      parts.push(
         shownThresholdBattery ? `单笔满 ¥${shownThresholdBattery / 10} 就提醒` : '大额提醒已关闭',
-        'info',
       );
+      parts.push(
+        shownReturnBattery ? `回访门槛 ¥${shownReturnBattery / 10}` : '回访提醒已关闭',
+      );
+      toast(parts.join('；'), 'info');
     } catch (err) {
       toast(err.message, 'error');
     } finally {

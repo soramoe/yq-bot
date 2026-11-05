@@ -164,8 +164,11 @@ export const api = {
   /** 付费用户档案：同样要读全量日志，超时放宽到 60 秒 */
   patrons: ({ days = 30, limit = 30 } = {}) =>
     request(`/api/patrons?days=${days}&limit=${limit}`, { timeout: 60000 }),
-  saveBigSpend: (battery) =>
-    request('/api/patrons/alert', { method: 'POST', body: { battery } }),
+  saveBigSpend: (battery, returnBattery) =>
+    request('/api/patrons/alert', {
+      method: 'POST',
+      body: returnBattery === undefined ? { battery } : { battery, returnBattery },
+    }),
   /** SC 待读清单：同样读全量日志，超时放宽到 60 秒 */
   scQueue: ({ days = 30 } = {}) => request(`/api/sc?days=${days}`, { timeout: 60000 }),
   markScRead: (ids) => request('/api/sc/read', { method: 'POST', body: { ids } }),

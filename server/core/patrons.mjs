@@ -17,6 +17,9 @@ const PAID_TYPES = new Set([EVENT.GIFT, EVENT.GUARD_BUY, EVENT.SUPER_CHAT])
 /** 单次大额提醒的上限。再大就不是"提醒"，而是配置写错了 */
 export const MAX_BIG_SPEND_BATTERY = 1_000_000_000
 
+/** 回访提醒的回看窗口：只看这之前来过、且付过钱的 */
+export const PATRON_RETURN_DAYS = 90
+
 function num(v, fallback = 0) {
   const n = Number(v)
   return Number.isFinite(n) ? n : fallback
@@ -58,8 +61,8 @@ export function patronNameOf(ev) {
   return String(p.name ?? '').trim()
 }
 
-function moneyText(batteryValue) {
-  // 电池 → 元。整数不带 .0，其余保留一位（和 notify.reportText 同一口径）
+/** 电池 → 元。整数不带 .0，其余保留一位（和 notify.reportText 同一口径） */
+export function moneyText(batteryValue) {
   const yuan = Number(batteryValue) / 10
   if (!Number.isFinite(yuan)) return '0'
   return Number.isInteger(yuan) ? String(yuan) : yuan.toFixed(1)
