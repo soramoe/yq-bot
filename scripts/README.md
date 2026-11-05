@@ -99,6 +99,9 @@ CI 里用 `--manifest-file latest.json --package-file <本地包>`，不联网�
 `<镜像>/yq/`，并检查公开地址是否已读到新版本。没配这些 secrets 时这一步
 直接跳过，Release 不受影响。
 
+同步失败或想重传某个旧版本时，去 Actions → release → Run workflow，
+填一个已有的 tag（留空取最新），只跑补同步，不会重新发 Release。
+
 ## 注意
 
 - 端口固定 `8900`；要换端口改 `start.bat` 里的 `PORT`，同时改

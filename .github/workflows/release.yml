@@ -4,12 +4,19 @@ on:
   push:
     tags:
       - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: '要同步到镜像的 Release tag（留空取最新）'
+        required: false
+        default: ''
 
 permissions:
   contents: write
 
 jobs:
   release:
+    if: github.event_name == 'push'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -80,33 +87,56 @@ jobs:
           R2_ENDPOINT: ${{ secrets.R2_ENDPOINT }}
           R2_BUCKET: ${{ secrets.R2_BUCKET }}
         run: |
-          if [ -z "$S3_ACCESS_KEY" ] || [ -z "$S3_SECRET_KEY" ]; then
-            echo "R2 secrets 未配置，跳过镜像同步"
-            exit 0
-          fi
-          ENDPOINT="${R2_ENDPOINT:-https://7403063f14f3cd4b75b4e28bce4db57e.r2.cloudflarestorage.com}"
-          BUCKET="${R2_BUCKET:-yq-mirror}"
-          VERSION="${GITHUB_REF_NAME#v}"
-          node scripts/mirror-release.mjs \
-            --s3 "$BUCKET" \
-            --endpoint "$ENDPOINT" \
-            --prefix yq \
-            --manifest-file latest.json \
-            --package-file "$RUNNER_TEMP/yuyue3-${VERSION}.tar.gz"
+          bash scripts/ci-sync-mirror.sh \
+            latest.json \
+            "$RUNNER_TEMP/yuyue3-${GITHUB_REF_NAME#v}.tar.gz"
 
-          # 公开地址有缓存，给几次机会再判定；失败只告警，不把 Release 标红。
-          BASE="${R2_PUBLIC_BASE:-https://pub-1c052ae1726e4964913fac13a4cbd08f.r2.dev/yq}"
-          OK=0
-          for i in 1 2 3 4 5; do
-            CODE="$(curl -s -o /tmp/mirror-latest.json -w '%{http_code}' "$BASE/latest.json" || true)"
-            if [ "$CODE" = "200" ] && grep -q "\"$VERSION\"" /tmp/mirror-latest.json; then
-              OK=1
-              break
-            fi
-            sleep 2
-          done
-          if [ "$OK" = "1" ]; then
-            echo "镜像已更新：$BASE/latest.json"
-          else
-            echo "::warning::镜像公开地址暂时没读到 v$VERSION，稍后手动确认 $BASE/latest.json"
+  # 手动补同步：发版后镜像同步失败，或想重传某个旧版本时用。
+  mirror:
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Resolve release tag
+        id: tag
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG="${{ inputs.tag }}"
+          if [ -z "$TAG" ]; then
+            TAG="$(gh release view --json tagName -q .tagName -R "$GITHUB_REPOSITORY")"
           fi
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+
+      - name: Download release assets
+        id: assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p "$RUNNER_TEMP/release"
+          gh release download "${{ steps.tag.outputs.tag }}" \
+            -R "$GITHUB_REPOSITORY" \
+            --pattern latest.json \
+            --dir "$RUNNER_TEMP/release"
+          VERSION="$(node -p "JSON.parse(require('fs').readFileSync(process.argv[1], 'utf8')).version" "$RUNNER_TEMP/release/latest.json")"
+          gh release download "${{ steps.tag.outputs.tag }}" \
+            -R "$GITHUB_REPOSITORY" \
+            --pattern "yuyue3-${VERSION}.tar.gz" \
+            --dir "$RUNNER_TEMP/release"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Sync mirror (Cloudflare R2)
+        env:
+          S3_ACCESS_KEY: ${{ secrets.R2_ACCESS_KEY_ID }}
+          S3_SECRET_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          R2_ENDPOINT: ${{ secrets.R2_ENDPOINT }}
+          R2_BUCKET: ${{ secrets.R2_BUCKET }}
+        run: |
+          bash scripts/ci-sync-mirror.sh \
+            "$RUNNER_TEMP/release/latest.json" \
+            "$RUNNER_TEMP/release/yuyue3-${{ steps.assets.outputs.version }}.tar.gz"

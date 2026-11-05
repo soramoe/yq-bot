@@ -595,6 +595,8 @@ node scripts/mirror-release.mjs --s3 yq-mirror --endpoint https://<账号>.r2.cl
 也可以交给 GitHub Actions：在仓库 Secrets 里配 `R2_ACCESS_KEY_ID` /
 `R2_SECRET_ACCESS_KEY`（可选 `R2_ENDPOINT`、`R2_BUCKET`），之后打 `v*` tag
 发版会自动把清单和包同步到镜像，并检查公开地址；没配就跳过，不影响 Release。
+同步失败时可以在 Actions → release → Run workflow 里填一个已有 tag 只补同步，
+不会重新发 Release。
 
 脚本会读清单、下载包、按 `sha256` / `size` 校验，再写/传到镜像；
 本地目录模式默认保留最近 5 个旧包，给还没升的机器留退路。
