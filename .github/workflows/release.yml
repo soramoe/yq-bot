@@ -78,6 +78,19 @@ jobs:
             --title "渔月崽三代 v${VERSION}" \
             --generate-notes
 
+      # 安装 zip 和更新 tar 走同一份文件清单：tar 给更新器，zip 给人下载。
+      - name: Build install zip
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          node scripts/make-dist.mjs --out "$RUNNER_TEMP/yuqing-bot-${VERSION}.zip"
+
+      - name: Upload install zip
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          gh release upload "$GITHUB_REF_NAME" "$RUNNER_TEMP/yuqing-bot-${VERSION}.zip" --clobber
+
       # 发版后自动把清单和包同步到 R2 镜像。没配 secrets 时这一步直接跳过，
       # 不影响 Release 本身；配了就不用每次手动跑 mirror-release.mjs。
       - name: Sync mirror (Cloudflare R2)

@@ -57,6 +57,7 @@ status.bat               状态
 autostart.bat            计划任务调用的包装（start.bat auto）
 install-autostart.bat    注册计划任务
 uninstall-autostart.bat  删除计划任务
+make-dist.mjs            打安装包 zip（零依赖，和 release workflow 同一份清单）
 ```
 
 日志在 `logs\service.out.log`（超过 5MB 时启动会轮转成 `.1`）。
@@ -101,6 +102,20 @@ CI 里用 `--manifest-file latest.json --package-file <本地包>`，不联网�
 
 同步失败或想重传某个旧版本时，去 Actions → release → Run workflow，
 填一个已有的 tag（留空取最新），只跑补同步，不会重新发 Release。
+
+## 打安装包
+
+```bash
+node scripts\make-dist.mjs                         # 默认 dist\yuqing-bot-<版本>.zip
+node scripts\make-dist.mjs --out D:\out\yq.zip     # 指定输出
+```
+
+安装包和更新 tar 用同一份 `DIST_ENTRIES`：只带代码、文档、`安装说明.txt`
+和唯一的依赖 `node_modules\ws`；`data\`、`logs\`、`scripts\proxy.txt`、
+`*.pem`、`*.key` 都不进包。文件名按 UTF-8 写进 zip，中文名在
+Windows 资源管理器和 7-Zip 里都能正常显示。
+
+发版时 release workflow 会自己跑这一步并把 zip 传到 Release，不用再手动传。
 
 ## 注意
 

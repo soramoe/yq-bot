@@ -222,7 +222,7 @@ npm run login              # 独立扫码登录（127.0.0.1:8898；服务在跑�
 npm run probe   <房间号>    # 探针：连上房间，事件逐条打出来
 npm run smoke   <房间号>    # 端到端：收一段再从日志重放，比对统计
 npm run demo    <房间号>    # 演练：真实房间 + 真实进场，看欢迎语会说什么（不真的发）
-npm run check              # 全部自检（862 项）
+npm run check              # 全部自检（865 项）
 ```
 
 `demo` 是安全的：dryRun 打开后不会真的发弹幕，可以拿任何直播间试。
@@ -504,7 +504,7 @@ npm run login        # 扫码登录（127.0.0.1:8898，终端也会打印二维�
 npm run probe  <房间号> [秒]   # 探针：连上真实房间，把事件逐条打出来
 npm run smoke  <房间号> [秒]   # 端到端：收一段弹幕，再从日志重放比对统计
 
-npm run check        # 全部自检（862 项，全离线）
+npm run check        # 全部自检（865 项，全离线）
 npm run check:p0     # 只跑地基
 npm run check:qr     # 只跑二维码编码器
 npm run check:login  # 只跑登录链路
@@ -526,6 +526,7 @@ npm run check:roster    # 只跑长期观众簿与老观众分类（含反向验
 npm run check:autocall  # 只跑自动打招呼（假时钟 + 四条反向验证）
 npm run check:greetings # 只跑招呼文案预设（长度 / manifest 不漂移 / 反向验证）
 npm run check:command   # 只跑弹幕指令（解析边界 / 认领让路 / 真实宿主集成）
+npm run check:dist      # 只跑安装包（文件清单 / 中文名 / 私有文件不外带）
 ```
 
 自检**不需要网络**：B站 接口在测试里全部被替换成假实现，
@@ -547,7 +548,16 @@ git push origin main --tags
 `.github/workflows/release.yml` 会：校验 tag 与 `package.json` 版本一致 →
 `npm ci --omit=dev`（把唯一的依赖 `ws` 一起打进去）→ 打成
 `yuyue3-<version>.tar.gz`（排除 `data/`、`.git/`、`.github/`）→ 生成
-`latest.json` → 创建 Release 并上传两个文件。
+`latest.json` → 创建 Release 并上传更新包和清单 → 用 `scripts/make-dist.mjs`
+打 `yuqing-bot-<version>.zip`（安装包，同一份文件清单，含 `安装说明.txt`）并
+上传 → 最后同步 R2 镜像。安装 zip 不再需要人工补传，更新 tar 与 zip 的
+文件取舍由同一份 `DIST_ENTRIES` 决定。
+
+本地想先看安装包内容：
+
+```bash
+node scripts/make-dist.mjs --out dist\yuqing-bot-1.0.3.zip
+```
 
 全新安装（还没有 `data/app.json`）会默认把更新源指向上面的 GitHub Release，
 镜像指向发行版自带的 R2 地址，开箱就能检查更新。用户改过或主动清空后以

@@ -1,6 +1,6 @@
 {
   "name": "yuyue-bot-3",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "private": true,
   "license": "SEE LICENSE IN LICENSE",
   "description": "渔情B站直播助手机器人 · B站直播间机器人（事件溯源内核）",
@@ -12,6 +12,7 @@
     "scripts/",
     "LICENSE",
     "README.md",
+    "安装说明.txt",
     "启动渔情.bat",
     "签发授权.bat"
   ],
@@ -45,6 +46,7 @@
     "check:autocall": "node --test \"server/tools/check-autocall.test.mjs\"",
     "check:greetings": "node --test \"server/tools/check-greetings.test.mjs\"",
     "check:command": "node --test \"server/tools/check-command.test.mjs\"",
+    "check:dist": "node --test \"server/tools/check-dist.test.mjs\"",
     "check:p5": "node --test \"server/tools/check-p5.test.mjs\"",
     "check:timeline": "node --test \"server/tools/check-timeline.test.mjs\"",
     "check:pwa": "node --test \"server/tools/check-pwa.test.mjs\"",

@@ -14,3 +14,6 @@ scripts/proxy.txt
 # 授权私钥：只留在本机 ~/.yuqing，永不进仓库
 *.pem
 *.key
+
+# 本地打的安装包，产物不进仓库
+dist/
