@@ -6,3 +6,6 @@ node_modules/
 
 # 日志
 *.log
+
+# 本机代理地址，换台机器就不同
+scripts/proxy.txt

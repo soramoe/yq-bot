@@ -551,6 +551,11 @@ git push origin main --tags
 https://github.com/<owner>/<repo>/releases/latest/download/latest.json
 ```
 
+如果这台机器访问 GitHub 需要代理：把代理地址（例如
+`http://127.0.0.1:12450`）单独一行写进 `scripts\proxy.txt`，
+`scripts\start.bat` 会给服务设 `HTTP(S)_PROXY` 和 `NODE_USE_ENV_PROXY=1`。
+这个文件只在本机生效，已在 `.gitignore` 里；不需要代理就别建。
+
 清单格式（v2；旧格式 `{version, notes, url}` 也能读，但不会出现下载按钮）：
 
 ```json

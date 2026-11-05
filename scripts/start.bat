@@ -14,6 +14,23 @@ set "OUT=%ROOT%\logs\service.out.log"
 if not exist "logs" md "logs"
 if not exist "data" md "data"
 
+rem Optional proxy for GitHub update checks. Put one URL in scripts\proxy.txt
+rem (for example http://127.0.0.1:12450). Node 24 still needs the env switch
+rem before it will route fetch through HTTP(S)_PROXY.
+if exist "%ROOT%\scripts\proxy.txt" (
+  set "PROXY_URL="
+  for /f "usebackq delims=" %%P in ("%ROOT%\scripts\proxy.txt") do (
+    if not defined PROXY_URL set "PROXY_URL=%%P"
+  )
+  if defined PROXY_URL (
+    set "HTTP_PROXY=%PROXY_URL%"
+    set "HTTPS_PROXY=%PROXY_URL%"
+    set "NO_PROXY=127.0.0.1,localhost,::1"
+    set "NODE_USE_ENV_PROXY=1"
+    echo [INFO] using proxy from scripts\proxy.txt
+  )
+)
+
 if /i "%~1"=="auto" (
   if exist "%PAUSE_FLAG%" (
     echo [SKIP] service is paused by stop.bat
