@@ -1,13 +1,13 @@
 /**
- * 点歌队列：把弹幕（或 SC）里的「点歌 xxx」变成一条可管理的队列。
+ * 点歌队列：把弹幕里的「点歌 xxx」变成一条可管理的队列。
  *
  * 为什么放在内核层而不是 sc 插件里：
  * - 队列状态要持久化（`data/songs.json`），关掉插件不该把队伍清空；
  * - 页面和接口读的是同一份状态，不能一边插件记、一边页面猜；
  * - 播报只是队列的副作用，队列本身与"说没说出去"无关。
  *
- * 弹幕点歌没有金额，item.yuan 记 0；SC 点歌也兼容，金额照旧记。
- * 免费不等于无限：同一个人同一首歌还在队里时不会重复进队。
+ * 只认弹幕：点歌是免费互动，醒目留言不参与。免费不等于无限：
+ * 同一个人同一首歌还在队里时不会重复进队。
  */
 
 /** 队列最多保留多少条（含已播放的当前条） */
@@ -25,13 +25,12 @@ const ACTIVE = new Set(['playing', 'queued']);
 /**
  * 从一条事件里解析点歌请求。
  *
- * 弹幕和 SC 都认：SC 里发「点歌 xxx」和普通弹幕发是完全一样的语义，
- * 金额只影响条目上的展示，不影响排队。
+ * 只认弹幕：点歌是免费互动，醒目留言不参与。
  *
- * @returns {{ song: string } | null} 不是弹幕/SC、不是点歌、或歌名为空 → null
+ * @returns {{ song: string } | null} 不是弹幕、不是点歌、或歌名为空 → null
  */
 export function parseSongRequest(ev) {
-  if (ev?.type !== 'DANMAKU' && ev?.type !== 'SUPER_CHAT') return null;
+  if (ev?.type !== 'DANMAKU') return null;
   const p = ev.payload;
   if (!p || typeof p !== 'object' || Array.isArray(p)) return null;
 
@@ -100,7 +99,6 @@ export function pushSong(items, request, ev, { now = Date.now(), max = MAX_SONG_
     uid,
     name: songNameOf(p),
     song: request.song,
-    yuan: Number(p.yuan) || 0,
     status: 'queued',
   };
   items.push(item);

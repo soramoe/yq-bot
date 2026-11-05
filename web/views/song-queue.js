@@ -10,11 +10,6 @@
 
 import { el, replaceChildren } from '../core/dom.js';
 
-function yuanText(n) {
-  const v = Math.max(0, Number(n) || 0);
-  return Number.isInteger(v) ? String(v) : v.toFixed(1);
-}
-
 export function createSongQueue({ dlg, badge = null, api, toast = () => {} }) {
   let data = { current: null, queued: 0, items: [] };
   let loadSeq = 0;
@@ -77,7 +72,7 @@ export function createSongQueue({ dlg, badge = null, api, toast = () => {} }) {
                 el('div', { class: 'song-title', text: it.song }),
                 el('div', {
                   class: 'song-meta',
-                  text: `${it.name || '匿名观众'}${it.yuan > 0 ? ` · ¥${yuanText(it.yuan)}` : ' · 弹幕点歌'}`,
+                  text: it.name || '匿名观众',
                 }),
               ],
             }),

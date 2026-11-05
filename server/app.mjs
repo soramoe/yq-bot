@@ -31,7 +31,6 @@ import {
   applySongAction,
   parseSongRequest,
   pushSong,
-  songPosition,
   songQueueView,
 } from './core/song-queue.mjs';
 import {
@@ -893,8 +892,7 @@ export class App {
     }
     this._broadcastSongs();
 
-    const pos = songPosition(this.songQueue, item.id);
-    const text = pos <= 1 ? `已点歌：${item.song}（下一首）` : `已点歌：${item.song}（第 ${pos} 位）`;
+    const text = `已点歌：${item.song}`;
     this.log.info(`[点歌] ${item.name}：${item.song}`);
     Promise.resolve(room.runner?.gate?.say?.({
       roomId: room.runner?.realRoomId ?? room.key,
