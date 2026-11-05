@@ -173,6 +173,21 @@ test('应用：重启后配置还在（新 App 读同一个数据目录）', asy
   assert.equal(host2.plugins.get('gift').config.template, '重启后应该还在')
 })
 
+test('应用：app.json 被写坏时从上一次备份恢复，而不是当成空配置', async (t) => {
+  const dir = tmp(t)
+  const { app } = await makeApp(t, { dataDir: dir })
+
+  app.updatePluginConfig('welcome', { template: '第一版' })
+  app.updatePluginConfig('welcome', { cooldownSec: 5 }) // 这次保存会把第一版留成 .bak
+
+  writeFileSync(join(dir, 'app.json'), '{ 这不是 JSON', 'utf8')
+
+  const app2 = new App({ dataDir: dir, roomId: '1901584685', dryRun: true })
+  const cfg = app2._loadConfig()
+  assert.equal(cfg.plugins.welcome.template, '第一版')
+  assert.equal(cfg.plugins.welcome.cooldownSec, undefined, '备份里没有第二次的改动')
+})
+
 test('应用：恢复默认会把这个插件的增量整条删掉，而不是存一份等于默认的值', async (t) => {
   const dir = tmp(t)
   const { app } = await makeApp(t, { dataDir: dir })

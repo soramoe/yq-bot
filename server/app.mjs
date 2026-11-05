@@ -9,7 +9,7 @@
  * 这样以后加第二个房间、加定时任务、加战报生成，都只动这一层。
  */
 
-import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
+import { copyFileSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { arch, platform, release } from 'node:os';
 import { join } from 'node:path';
 
@@ -438,10 +438,19 @@ export class App {
   }
 
   _loadConfig() {
+    const path = this._configPath();
     try {
-      return JSON.parse(readFileSync(this._configPath(), 'utf8'));
+      return JSON.parse(readFileSync(path, 'utf8'));
     } catch {
-      return {};
+      // 主配置被写坏时退到上一次的备份，不能默默当成"什么都没配"，
+      // 否则用户重启后会看到房间、webhook、阈值全部凭空消失。
+      try {
+        const backup = JSON.parse(readFileSync(`${path}.bak`, 'utf8'));
+        this.log.warn('[配置] data/app.json 读不出来，已从上一次备份 app.json.bak 恢复');
+        return backup;
+      } catch {
+        return {};
+      }
     }
   }
 
@@ -470,6 +479,12 @@ export class App {
     const tmp = `${path}.tmp`;
     try {
       mkdirSync(this.dataDir, { recursive: true });
+      // 先留上一份好配置：原子写只防"写了一半"，防不了"内容被改坏"
+      try {
+        copyFileSync(path, `${path}.bak`);
+      } catch {
+        // 第一次保存时还没有旧文件，不算失败
+      }
       // 原子写：先写临时文件再改名，避免断电留下半个 JSON 文件
       writeFileSync(tmp, data, 'utf8');
       renameSync(tmp, path);
