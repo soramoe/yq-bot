@@ -1,0 +1,292 @@
+/*
+ * OBS 挂件样式。
+ *
+ * 约束只有三条：
+ *   1. 背景必须透明 —— OBS 的浏览器源如果没有透明底，会整块盖住画面；
+ *   2. 不接收鼠标 —— 挂件盖在直播画面上，点一下不应该挡住下面的东西；
+ *   3. 全部用 vw/vh/clamp 缩放 —— 浏览器源分辨率改了，字不能跟着跑丢。
+ */
+
+:root {
+  --ov-fg: #ffffff;
+  --ov-dim: rgba(255, 255, 255, 0.66);
+  --ov-card: rgba(10, 16, 28, 0.52);
+  --ov-line: rgba(255, 255, 255, 0.14);
+  --ov-accent: #7cc7ff;
+  --ov-good: #67e8a0;
+  --ov-warn: #ffd36b;
+  --ov-pink: #ff9ecb;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background: transparent;
+}
+
+body {
+  font-family: 'PingFang SC', 'Microsoft YaHei', 'Noto Sans SC', system-ui, sans-serif;
+  color: var(--ov-fg);
+  -webkit-font-smoothing: antialiased;
+}
+
+.ov-root {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.55);
+}
+
+.ov-card {
+  position: absolute;
+  background: var(--ov-card);
+  border: 1px solid var(--ov-line);
+  border-radius: clamp(10px, 0.9vw, 18px);
+  box-shadow: 0 10px 34px rgba(0, 0, 0, 0.32);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+}
+
+/* ── 标题 ── */
+
+.ov-title {
+  top: 3vh;
+  left: 3vw;
+  display: flex;
+  align-items: center;
+  gap: 1.1vw;
+  padding: 1.2vh 1.4vw;
+  max-width: 58vw;
+}
+
+.ov-dot {
+  flex: none;
+  width: clamp(8px, 0.75vw, 14px);
+  height: clamp(8px, 0.75vw, 14px);
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.32);
+}
+
+.ov-dot.is-live {
+  background: var(--ov-good);
+  box-shadow: 0 0 0.9vw var(--ov-good);
+  animation: ov-pulse 2.2s ease-in-out infinite;
+}
+
+.ov-dot.is-unknown {
+  background: var(--ov-warn);
+  box-shadow: 0 0 0.9vw rgba(255, 211, 107, 0.7);
+}
+
+@keyframes ov-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.45;
+  }
+}
+
+.ov-title-text {
+  min-width: 0;
+}
+
+.ov-title h1 {
+  margin: 0;
+  font-size: clamp(16px, 1.45vw, 30px);
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.ov-title p {
+  margin: 0.4vh 0 0;
+  font-size: clamp(11px, 0.85vw, 17px);
+  color: var(--ov-dim);
+}
+
+/* ── 本场数字 ── */
+
+.ov-stats {
+  left: 3vw;
+  bottom: 4vh;
+  display: flex;
+  gap: clamp(10px, 1.6vw, 34px);
+  padding: 1.4vh 1.6vw;
+}
+
+.ov-stat {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4vh;
+  min-width: clamp(48px, 4.6vw, 96px);
+}
+
+.ov-label {
+  font-size: clamp(10px, 0.72vw, 14px);
+  color: var(--ov-dim);
+  letter-spacing: 0.08em;
+}
+
+.ov-value {
+  font-size: clamp(18px, 1.6vw, 34px);
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ── 付费用户 ── */
+
+.ov-paid {
+  top: 3vh;
+  right: 3vw;
+  width: clamp(210px, 19vw, 380px);
+  padding: 1.3vh 1.3vw;
+}
+
+.ov-paid h2,
+.ov-gifts h2 {
+  margin: 0 0 0.8vh;
+  font-size: clamp(11px, 0.85vw, 16px);
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  color: var(--ov-dim);
+}
+
+.ov-dim {
+  color: var(--ov-dim);
+  font-weight: 400;
+}
+
+.ov-paid-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.ov-paid-row {
+  display: grid;
+  grid-template-columns: 1.5em 1fr auto;
+  gap: 0.5vw;
+  align-items: baseline;
+  padding: 0.45vh 0;
+  font-size: clamp(12px, 0.92vw, 18px);
+}
+
+.ov-paid-row + .ov-paid-row {
+  border-top: 1px solid rgba(255, 255, 255, 0.07);
+}
+
+.ov-rank {
+  color: var(--ov-warn);
+  font-variant-numeric: tabular-nums;
+}
+
+.ov-name {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.ov-money {
+  color: var(--ov-pink);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ── 最近礼物 ── */
+
+.ov-gifts {
+  right: 3vw;
+  bottom: 4vh;
+  width: clamp(250px, 25vw, 480px);
+  padding: 1.3vh 1.3vw;
+}
+
+.ov-gift-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 0.55vh;
+}
+
+.ov-gift-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.8vw;
+  font-size: clamp(11px, 0.88vw, 17px);
+  animation: ov-in 0.28s ease-out;
+}
+
+.ov-gift-row .ov-what {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  color: rgba(255, 255, 255, 0.92);
+}
+
+.ov-gift-row .ov-amount {
+  flex: none;
+  color: var(--ov-warn);
+  font-variant-numeric: tabular-nums;
+}
+
+.ov-gift-row.is-sc .ov-amount {
+  color: var(--ov-pink);
+}
+
+@keyframes ov-in {
+  from {
+    opacity: 0;
+    transform: translateY(0.6vh);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* ── 大额提醒 / 未开播 ── */
+
+.ov-bigspend {
+  position: absolute;
+  left: 50%;
+  top: 10vh;
+  transform: translateX(-50%);
+  padding: 1.2vh 1.6vw;
+  border-radius: 999px;
+  background: rgba(120, 20, 40, 0.72);
+  border: 1px solid rgba(255, 158, 203, 0.45);
+  font-size: clamp(13px, 1.05vw, 20px);
+  font-weight: 600;
+  white-space: nowrap;
+  animation: ov-in 0.24s ease-out;
+}
+
+.ov-offline {
+  position: absolute;
+  left: 50%;
+  bottom: 4vh;
+  transform: translateX(-50%);
+  padding: 0.9vh 1.2vw;
+  border-radius: 999px;
+  background: rgba(10, 16, 28, 0.62);
+  border: 1px solid var(--ov-line);
+  color: var(--ov-dim);
+  font-size: clamp(11px, 0.85vw, 16px);
+  letter-spacing: 0.08em;
+}
+
+[hidden] {
+  display: none !important;
+}

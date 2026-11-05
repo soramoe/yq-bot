@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>渔月崽 · 直播挂件</title>
+    <link rel="stylesheet" href="/overlay.css" />
+  </head>
+  <body>
+    <!--
+      给 OBS「浏览器源」用的透明挂件页。和主界面分开：
+      主界面是操作台，这里是直播画面里的一层信息，不需要任何按钮。
+      URL：http://127.0.0.1:8900/overlay.html
+    -->
+    <div class="ov-root">
+      <section class="ov-card ov-title" aria-live="polite">
+        <span class="ov-dot" id="ov-dot"></span>
+        <div class="ov-title-text">
+          <h1 id="ov-room">等待连接…</h1>
+          <p id="ov-sub">正在连接本地服务</p>
+        </div>
+      </section>
+
+      <section class="ov-card ov-stats">
+        <div class="ov-stat">
+          <span class="ov-label">弹幕</span>
+          <span class="ov-value" id="ov-danmaku">0</span>
+        </div>
+        <div class="ov-stat">
+          <span class="ov-label">观众</span>
+          <span class="ov-value" id="ov-viewers">0</span>
+        </div>
+        <div class="ov-stat">
+          <span class="ov-label">进场</span>
+          <span class="ov-value" id="ov-enter">0</span>
+        </div>
+        <div class="ov-stat">
+          <span class="ov-label">礼物</span>
+          <span class="ov-value" id="ov-gift">0</span>
+        </div>
+        <div class="ov-stat">
+          <span class="ov-label">醒目</span>
+          <span class="ov-value" id="ov-sc">0</span>
+        </div>
+      </section>
+
+      <section class="ov-card ov-paid" id="ov-paid">
+        <h2>付费用户 <span class="ov-dim">Top 5</span></h2>
+        <ol id="ov-paid-list" class="ov-paid-list"></ol>
+      </section>
+
+      <section class="ov-card ov-gifts" id="ov-gifts">
+        <h2>最近礼物</h2>
+        <ul id="ov-gift-list" class="ov-gift-list"></ul>
+      </section>
+
+      <div class="ov-bigspend" id="ov-bigspend" hidden></div>
+      <div class="ov-offline" id="ov-offline" hidden>未开播 · 等待开播</div>
+    </div>
+
+    <script type="module" src="/overlay.js"></script>
+  </body>
+</html>

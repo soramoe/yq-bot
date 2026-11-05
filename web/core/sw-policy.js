@@ -31,6 +31,8 @@ export const WS_PATH = '/ws'
  */
 export const SHELL_SEEDS = [
   SHELL_URL,
+  // 直播挂件是独立入口，没有页面链接到它，必须显式列出来
+  '/overlay.html',
   '/app.css',
   '/tokens.css',
   '/app.js',
