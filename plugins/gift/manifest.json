@@ -53,6 +53,17 @@
       "group": "连击"
     },
     {
+      "key": "singleWaitSec",
+      "type": "number",
+      "label": "单个礼物先等",
+      "default": 3,
+      "min": 0,
+      "max": 30,
+      "suffix": "秒",
+      "hint": "没有连击时，单个礼物只等这么久就答谢；窗口内来了下一个才按合并窗口继续攒",
+      "group": "连击"
+    },
+    {
       "key": "maxWaitSec",
       "type": "number",
       "label": "最长等待",

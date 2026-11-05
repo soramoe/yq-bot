@@ -186,6 +186,30 @@ test('答谢：合上窗口后说一句话，数量为 1 时用单数文案', as
   assert.deepEqual(says[0].reply, { uid: '1001', uname: '小明' });
 });
 
+test('答谢：单个礼物只等 singleWaitSec，不等满合并窗口', async (t) => {
+  const { host, says } = await makeHost(t, { gift: { mergeSec: 60, singleWaitSec: 0.2 } });
+
+  await host.dispatch(giftEvent());
+  assert.equal(says.length, 0, '刚收到，先等一小会儿看有没有连击');
+
+  await sleep(400);
+  assert.equal(says.length, 1, '只送一个礼物的观众不该陪连击一起等 60 秒');
+});
+
+test('答谢：singleWaitSec 内来了连击，仍然合并成一句', async (t) => {
+  const { host, says } = await makeHost(t, {
+    gift: { mergeSec: 60, singleWaitSec: 3, templateMulti: '{礼物}×{数量}' },
+  });
+  const t0 = Date.now() - 3600_000;
+
+  await host.dispatch(giftEvent({ ts: t0 }));
+  await host.dispatch(giftEvent({ ts: t0 + 1000 }, { comboCount: 2 }));
+  await host.replayEnd();
+
+  assert.equal(says.length, 1, '1 秒 < 3 秒试探期，必须合成一句');
+  assert.equal(says[0].text, '小花花×2');
+});
+
 test('答谢：连击差值法 —— comboCount 从 1 跳到 5，数量必须是 5 而不是 3', async (t) => {
   const { host, says } = await makeHost(t, {
     gift: {

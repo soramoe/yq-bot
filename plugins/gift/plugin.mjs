@@ -23,6 +23,12 @@
  * 观众一直送就一直等，会把「×2 ×3 … ×50」攒到几十个才憋出一句 ——
  * 答谢迟到比不答谢更奇怪。所以超过 maxWaitSec 必须发。
  *
+ * ## 单个礼物不能等满合并窗口
+ *
+ * 首条礼物往往拿不到「这是连击」的信息。要是直接等满 mergeSec，
+ * 只送一个礼物的人也要等几十秒才听到谢谢。所以先用 singleWaitSec
+ * 探一下：窗口内来了同一个人同礼物的下一条，才按 mergeSec 继续攒。
+ *
  * ## 状态放在内存里，重启就没了
  *
  * 这是**故意的**：pending 里的东西丢了最多漏一句答谢，
@@ -125,7 +131,7 @@ export default {
       total,
       /** 上一次看到的连击累计值，差值法全靠它 */
       lastCombo: Number(p.comboCount) || 0,
-      /** 顺延基准 = 第一次的到期时间 */
+      /** 顺延基准 = 第一次到达时间 */
       first: 0,
       deadline: 0,
     };
@@ -151,8 +157,11 @@ export default {
     const prev = pending.get(key);
     if (!prev) {
       if (pending.size >= MAX_PENDING) dropOldest(pending);
-      item.first = now + Number(cfg.mergeSec) * 1000;
-      item.deadline = item.first;
+      // 单个礼物只等一小会儿；窗口内来了第二个，才按合并窗口继续攒。
+      // 首条礼物往往拿不到「这是连击」的信息，只能先用短等待试探。
+      item.first = now;
+      const graceMs = Math.max(0, Number(cfg.singleWaitSec ?? 3)) * 1000;
+      item.deadline = now + Math.min(graceMs, Number(cfg.mergeSec) * 1000);
       pending.set(key, item);
       return true;
     }
@@ -186,7 +195,7 @@ export default {
       prev.lastCombo = Math.max(prev.lastCombo || 0, c);
     }
 
-    // 顺延，但有上限：从第一次的到期时间算起，最多等 maxWaitSec
+    // 顺延，但有上限：从第一次到达时间算起，最多等 maxWaitSec
     const maxWait = Math.max(0, Number(cfg.maxWaitSec) || 0) * 1000;
     const next = now + Number(cfg.mergeSec) * 1000;
     prev.deadline = maxWait > 0 ? Math.min(prev.first + maxWait, next) : next;
