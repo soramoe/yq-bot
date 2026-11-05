@@ -2635,6 +2635,7 @@ test('PK 情报：按钮、弹窗与接线都在，换房要重拉', () => {
   assert.match(view, /\{名字\}/)
   assert.match(view, /\{人数\}/)
   assert.match(view, /\{贡献\}/)
+  assert.match(view, /rawThreshold/)
   assert.match(apiSrc, /savePk:\s*\(settings\)/)
 })
 

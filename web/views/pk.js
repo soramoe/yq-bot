@@ -272,8 +272,10 @@ export function createPk({ dlg, toast = () => {} }) {
 
   async function save() {
     const raw = input.value.trim();
-    const wantThreshold = Number(threshold.value);
-    if (!Number.isInteger(wantThreshold) || wantThreshold < 0) {
+    const rawThreshold = threshold.value.trim();
+    const wantThreshold = Number(rawThreshold);
+    // Number('') === 0：清空输入框不能被当成"0 = 永远算一般"
+    if (!rawThreshold || !Number.isInteger(wantThreshold) || wantThreshold < 0) {
       toast('强敌阈值要写成 0 或正整数', 'error');
       return;
     }

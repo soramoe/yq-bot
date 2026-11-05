@@ -2470,8 +2470,21 @@ export class App {
       strong: this.pkBriefStrong,
       weak: this.pkBriefWeak,
     };
-    if (enabled !== undefined && typeof enabled !== 'boolean') {
-      throw { status: 400, code: 'bad_pk_brief', message: 'PK 开场播报开关只能是 true / false' };
+    // 先全部校验、算出 next，最后一次性赋值：任何一项不合法都不能留下半套设置
+    const next = {
+      enabled: before.enabled,
+      threshold: before.threshold,
+      name: before.name,
+      online: before.online,
+      rank: before.rank,
+      strong: before.strong,
+      weak: before.weak,
+    };
+    if (enabled !== undefined) {
+      if (typeof enabled !== 'boolean') {
+        throw { status: 400, code: 'bad_pk_brief', message: 'PK 开场播报开关只能是 true / false' };
+      }
+      next.enabled = enabled;
     }
     if (threshold !== undefined) {
       const n = Number(threshold);
@@ -2482,7 +2495,7 @@ export class App {
           message: '强敌阈值要写成 0..1000000000 的整数（0 = 永远算一般）',
         };
       }
-      this.pkBriefThreshold = n;
+      next.threshold = n;
     }
     for (const [key, value, placeholder] of [
       ['name', name, '{名字}'],
@@ -2504,9 +2517,16 @@ export class App {
           message: `这条播报文案里要有 ${placeholder}`,
         };
       }
-      this[`pkBrief${key[0].toUpperCase()}${key.slice(1)}`] = text;
+      next[key] = text;
     }
-    if (enabled !== undefined) this.pkBrief = enabled;
+
+    this.pkBrief = next.enabled;
+    this.pkBriefThreshold = next.threshold;
+    this.pkBriefName = next.name;
+    this.pkBriefOnline = next.online;
+    this.pkBriefRank = next.rank;
+    this.pkBriefStrong = next.strong;
+    this.pkBriefWeak = next.weak;
 
     if (!this._saveConfig()) {
       this.pkBrief = before.enabled;
@@ -2687,8 +2707,6 @@ export class App {
 
     const rank = await this._fetchRankSafe(mate.roomId, cookie, mate.uid);
     if (!rank) return; // 榜单没拿到：下一轮再试，别播一份缺数字的情报
-    // 拿齐了再认领这一场：中途失败还能在下一轮补，别因为一次网络抖动整场静默
-    this._pkBattleId = battle.pkId;
     const top10 = (rank.items ?? []).slice(0, 10);
     const contribution = top10.reduce((sum, it) => sum + (Number(it.score) || 0), 0);
     // 「在线人数」按用户口径取高能榜的 onlineNum，不取房间人气
@@ -2709,6 +2727,8 @@ export class App {
       return;
     }
 
+    // 发言通道确认可用后才认领这一场：否则一次没有 gate 就会让整场静默
+    this._pkBattleId = battle.pkId;
     const gap = this.pkBriefGapMs;
     runner.holdSpeech?.(texts.length * gap + 4000);
     this._emit({

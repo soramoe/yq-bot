@@ -2936,4 +2936,24 @@ test('PK 开场：检测到新一场就分段播对面情报，同一场只播�
     () => app.setPkBrief({ name: '对面主播' }),
     (err) => err.code === 'bad_pk_brief' && err.message.includes('{名字}'),
   )
+  // 一项合法一项不合法：整组拒绝，不能把阈值先改了
+  const keptThreshold = app.pkBriefThreshold
+  assert.throws(
+    () => app.setPkBrief({ threshold: 3000, strong: 123 }),
+    (err) => err.code === 'bad_pk_brief',
+  )
+  assert.equal(app.pkBriefThreshold, keptThreshold)
+
+  // 没有发言通道时不能认领这一场，下次有通道还要能补播
+  const realRunner = app.runner
+  battle = {
+    active: true,
+    pkId: 'pk-4',
+    members: [{ uid: '1', roomId: '200', name: '对面主播' }],
+  }
+  app.runner = null
+  await app._maybeBriefPk(battle, '1000100', '')
+  app.runner = realRunner
+  await app.pollPk()
+  assert.equal(texts().length, 16, '没有 gate 的那次不能把这场吞掉')
 })
