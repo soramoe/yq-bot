@@ -175,7 +175,7 @@ function installDom() {
 
 /* ══════════════════ 假请求 ══════════════════ */
 
-function installFetch(t, snapshot) {
+function installFetch(t, snapshot, options = {}) {
   const calls = []
   globalThis.fetch = async (url, init = {}) => {
     const path = String(url)
@@ -194,9 +194,27 @@ function installFetch(t, snapshot) {
           ok: true,
           version: '0.2.0',
           config: { roomId: '1901584685', updateUrl: '' },
-          update: null,
+          update: options.update ?? null,
         }),
       }
+    }
+
+    if (path === '/api/update/download') {
+      if (options.downloadError) {
+        return { ok: false, status: 502, json: async () => ({ ok: false, error: { message: options.downloadError } }) }
+      }
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({ ok: true, version: '0.3.0', bytes: 1024, sha256: 'a'.repeat(64) }),
+      }
+    }
+
+    if (path === '/api/update/apply') {
+      if (options.applyError) {
+        return { ok: false, status: 409, json: async () => ({ ok: false, error: { message: options.applyError, code: options.applyCode } }) }
+      }
+      return { ok: true, status: 200, json: async () => ({ ok: true, version: '0.3.0', restarting: true }) }
     }
 
     if (path === '/api/update/check') {
@@ -236,10 +254,10 @@ async function realSnapshot(t) {
   return { plugins: snap.plugins, errors: snap.errors }
 }
 
-async function mount(t) {
+async function mount(t, options = {}) {
   installDom()
   const snapshot = await realSnapshot(t)
-  const calls = installFetch(t, snapshot)
+  const calls = installFetch(t, snapshot, options)
 
   // 放到 import 之后也不要紧：settings.js 顶层不碰 DOM，只在函数里用
   const { createSettings } = await import('../../web/views/settings.js')
@@ -1320,6 +1338,57 @@ test('设置页：「维护」里有更新检查与诊断包，且检查更新�
   // 从维护切回插件，插件面板不能被"维护页"的状态污染
   pick(tabs, '欢迎')
   assert.ok(body.all('plg-field').length > 0)
+})
+
+test('设置页：更新包下载完才出现「重启并应用」，应用前必须确认', async (t) => {
+  const update = {
+    configured: true,
+    hasUpdate: true,
+    current: '0.2.0',
+    latest: '0.3.0',
+    download: 'https://example.com/yuyue3-0.3.0.tar.gz',
+    sha256: 'a'.repeat(64),
+    size: 1024,
+    notes: '测试版本',
+  }
+  const { settings, tabs, body, calls } = await mount(t, { update })
+  await settings.open()
+
+  pick(tabs, '维护')
+  await new Promise((r) => setImmediate(r))
+
+  const dl = body.all('btn').find((b) => b.textContent === '下载更新包')
+  assert.ok(dl, '有新版本且带 download 时要出现下载按钮')
+  assert.notEqual(dl.style.display, 'none')
+
+  const apply = body.all('btn').find((b) => b.textContent === '重启并应用')
+  assert.ok(apply, '要有应用按钮')
+  assert.equal(apply.style.display, 'none', '没下载前不能出现「重启并应用」')
+
+  await dl.listeners.click[0]()
+  await new Promise((r) => setImmediate(r))
+  assert.ok(calls.some((c) => c.path === '/api/update/download'), '下载按钮要真的发请求')
+  assert.equal(dl.textContent, '重新下载')
+  assert.notEqual(apply.style.display, 'none', '下载完才允许应用')
+
+  const confirms = []
+  globalThis.window = {
+    confirm: (msg) => {
+      confirms.push(msg)
+      return true
+    },
+  }
+  t.after(() => {
+    delete globalThis.window
+  })
+
+  await apply.listeners.click[0]()
+  await new Promise((r) => setImmediate(r))
+  assert.ok(confirms.length >= 1, '重启前必须弹确认')
+  assert.ok(
+    calls.some((c) => c.path === '/api/update/apply' && c.body?.confirm === true),
+    '确认后要带着 confirm:true 发请求',
+  )
 })
 
 /* ══════════════════ 多房间总览 ══════════════════ */
