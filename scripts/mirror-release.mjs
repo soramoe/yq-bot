@@ -158,22 +158,27 @@ async function fetchBuffer(url, { fetchImpl = globalThis.fetch, timeoutMs = 180_
 }
 
 /**
- * 拉清单 + 包，校验后写进本地镜像目录。
- * 返回 { manifest, version, name, mirrorUrl, dir }。
+ * 读清单：优先本地文件（CI 里直接读刚生成的那份），其次 URL。
+ * 返回 { raw, manifest, from }。
  */
-export async function publishToDir({
-  manifestUrl,
-  dir,
-  base = '',
-  keep = 5,
-  fetchImpl = globalThis.fetch,
-  allowHttp = false,
-  log = (m) => console.log(m),
-} = {}) {
-  if (!manifestUrl) throw new Error('缺少清单地址（--manifest）');
-  if (!dir) throw new Error('缺少目录（--dir）');
-
-  log(`[1/4] 读清单：${manifestUrl}`);
+async function loadManifest({ manifestUrl, manifestFile, fetchImpl, allowHttp }) {
+  if (manifestFile) {
+    const file = resolve(manifestFile);
+    let raw;
+    try {
+      raw = readFileSync(file);
+    } catch {
+      throw new Error(`读不到本地清单：${manifestFile}`);
+    }
+    let manifest;
+    try {
+      manifest = JSON.parse(raw.toString('utf8'));
+    } catch {
+      throw new Error('清单不是合法 JSON');
+    }
+    return { raw, manifest, from: file };
+  }
+  if (!manifestUrl) throw new Error('缺少清单地址（--manifest 或 --manifest-file）');
   const raw = await fetchBuffer(manifestUrl, { fetchImpl, allowHttp, timeoutMs: 30_000 });
   let manifest;
   try {
@@ -181,12 +186,60 @@ export async function publishToDir({
   } catch {
     throw new Error('清单不是合法 JSON');
   }
-  const pkg = packageFromManifest(manifest);
+  return { raw, manifest, from: manifestUrl };
+}
 
-  log(`[2/4] 下载 v${pkg.version}：${pkg.download}`);
-  const body = await fetchBuffer(pkg.download, { fetchImpl, allowHttp });
+/**
+ * 取包：优先本地文件（CI 里省一次下载），否则按清单 download 拉。
+ * 两种来源都按清单的 size / sha256 校验。
+ */
+async function loadPackage({ pkg, packageFile, fetchImpl, allowHttp }) {
+  let body;
+  let from;
+  if (packageFile) {
+    const file = resolve(packageFile);
+    try {
+      body = readFileSync(file);
+    } catch {
+      throw new Error(`读不到本地更新包：${packageFile}`);
+    }
+    from = file;
+  } else {
+    body = await fetchBuffer(pkg.download, { fetchImpl, allowHttp });
+    from = pkg.download;
+  }
   if (body.length !== pkg.size) throw new Error(`包大小不对：拿到 ${body.length}，清单写 ${pkg.size}`);
   if (pkg.sha256 && sha256Hex(body) !== pkg.sha256) throw new Error('sha256 对不上，包可能下坏了');
+  return { body, from };
+}
+
+/**
+ * 拉清单 + 包，校验后写进本地镜像目录。
+ * 返回 { manifest, version, name, mirrorUrl, dir }。
+ */
+export async function publishToDir({
+  manifestUrl,
+  manifestFile = '',
+  packageFile = '',
+  dir,
+  base = '',
+  keep = 5,
+  fetchImpl = globalThis.fetch,
+  allowHttp = false,
+  log = (m) => console.log(m),
+} = {}) {
+  if (!manifestUrl && !manifestFile) throw new Error('缺少清单地址（--manifest）');
+  if (!dir) throw new Error('缺少目录（--dir）');
+
+  const loaded = await loadManifest({ manifestUrl, manifestFile, fetchImpl, allowHttp });
+  const raw = loaded.raw;
+  const manifest = loaded.manifest;
+  log(`[1/4] 读清单：${loaded.from}`);
+  const pkg = packageFromManifest(manifest);
+
+  const pkgLoaded = await loadPackage({ pkg, packageFile, fetchImpl, allowHttp });
+  const body = pkgLoaded.body;
+  log(`[2/4] 取包 v${pkg.version}：${pkgLoaded.from}`);
 
   const root = resolve(dir);
   mkdirSync(root, { recursive: true });
@@ -221,6 +274,8 @@ export async function publishToDir({
 /** 上传到 S3 兼容存储 */
 export async function publishToS3({
   manifestUrl,
+  manifestFile = '',
+  packageFile = '',
   bucket,
   endpoint,
   region = 'auto',
@@ -231,19 +286,19 @@ export async function publishToS3({
   log = (m) => console.log(m),
   allowHttp = false,
 } = {}) {
-  if (!manifestUrl) throw new Error('缺少清单地址（--manifest）');
+  if (!manifestUrl && !manifestFile) throw new Error('缺少清单地址（--manifest）');
   if (!bucket) throw new Error('缺少 bucket（--s3）');
   if (!endpoint) throw new Error('缺少 endpoint（--endpoint）');
 
-  log(`[1/3] 读清单：${manifestUrl}`);
-  const raw = await fetchBuffer(manifestUrl, { fetchImpl, allowHttp, timeoutMs: 30_000 });
-  const manifest = JSON.parse(raw.toString('utf8'));
+  const loaded = await loadManifest({ manifestUrl, manifestFile, fetchImpl, allowHttp });
+  const raw = loaded.raw;
+  const manifest = loaded.manifest;
+  log(`[1/3] 读清单：${loaded.from}`);
   const pkg = packageFromManifest(manifest);
 
-  log(`[2/3] 下载 v${pkg.version}：${pkg.download}`);
-  const body = await fetchBuffer(pkg.download, { fetchImpl, allowHttp });
-  if (body.length !== pkg.size) throw new Error(`包大小不对：拿到 ${body.length}，清单写 ${pkg.size}`);
-  if (pkg.sha256 && sha256Hex(body) !== pkg.sha256) throw new Error('sha256 对不上，包可能下坏了');
+  const pkgLoaded = await loadPackage({ pkg, packageFile, fetchImpl, allowHttp });
+  const body = pkgLoaded.body;
+  log(`[2/3] 取包 v${pkg.version}：${pkgLoaded.from}`);
 
   const keyOf = (name) => [prefix.replace(/^\/+|\/+$/g, ''), name].filter(Boolean).join('/');
 
@@ -305,7 +360,9 @@ function usage() {
   node scripts/mirror-release.mjs --s3 <bucket> --endpoint <S3 地址> [选项]
 
 选项：
-  --manifest <url>   更新清单地址；默认读 data/app.json 的 updateUrl
+  --manifest <url>        更新清单地址；默认读 data/app.json 的 updateUrl
+  --manifest-file <路径>  从本地清单读（CI 里用，优先于 --manifest）
+  --package-file <路径>   直接用本地包，不再按清单 download 下载
   --dir <路径>       本地镜像目录（nginx / Caddy 的静态目录）
   --s3 <bucket>      S3 兼容桶名
   --endpoint <url>   S3 endpoint（R2: https://<账号>.r2.cloudflarestorage.com）
@@ -323,7 +380,9 @@ async function main() {
   const argv = process.argv.slice(2);
   if (hasFlag('help') || argv.length === 0) return usage();
 
-  const manifestUrl = argOf('manifest') || defaultManifest();
+  const manifestFile = argOf('manifest-file');
+  const manifestUrl = argOf('manifest') || (manifestFile ? '' : defaultManifest());
+  const packageFile = argOf('package-file');
   const dir = argOf('dir');
   const bucket = argOf('s3');
   const endpoint = argOf('endpoint');
@@ -333,8 +392,8 @@ async function main() {
   const keep = Number(argOf('keep', '5')) || 5;
   const allowHttp = hasFlag('allow-http');
 
-  if (!manifestUrl) {
-    console.error('没有清单地址：用 --manifest 指定，或在 data/app.json 里配 updateUrl');
+  if (!manifestUrl && !manifestFile) {
+    console.error('没有清单地址：用 --manifest 或 --manifest-file 指定，或在 data/app.json 里配 updateUrl');
     process.exitCode = 2;
     return;
   }
@@ -345,14 +404,14 @@ async function main() {
   }
 
   if (hasFlag('dry-run')) {
-    const raw = await fetchBuffer(manifestUrl, { allowHttp });
-    const pkg = packageFromManifest(JSON.parse(raw.toString('utf8')));
+    const loaded = await loadManifest({ manifestUrl, manifestFile, allowHttp });
+    const pkg = packageFromManifest(loaded.manifest);
     console.log(`[dry-run] 会发布 v${pkg.version} / ${pkg.name} / ${pkg.size} 字节`);
     return;
   }
 
   if (dir) {
-    const r = await publishToDir({ manifestUrl, dir, base, keep, allowHttp });
+    const r = await publishToDir({ manifestUrl, manifestFile, packageFile, dir, base, keep, allowHttp });
     if (base) console.log(`\n把维护页「更新镜像」填成：${base.replace(/\/+$/, '')}`);
     else console.log(`\n把 ${r.dir} 交给静态服务器后，镜像地址填那个 https 目录`);
     return;
@@ -365,7 +424,7 @@ async function main() {
     process.exitCode = 2;
     return;
   }
-  await publishToS3({ manifestUrl, bucket, endpoint, region, prefix, accessKey, secretKey, allowHttp });
+  await publishToS3({ manifestUrl, manifestFile, packageFile, bucket, endpoint, region, prefix, accessKey, secretKey, allowHttp });
   console.log('\n把维护页「更新镜像」填成桶/前缀对应的 https 地址');
 }
 

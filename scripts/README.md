@@ -80,10 +80,24 @@ node scripts\mirror-release.mjs --dir D:\mirror\yq --dry-run
 ```
 
 默认从 `data/app.json` 的 `updateUrl` 读清单；也可以 `--manifest <url>` 指定。
+CI 里用 `--manifest-file latest.json --package-file <本地包>`，不联网也能发布。
 程序要求镜像目录里同时有 `latest.json` 和清单 `download` 最后一段同名的包；
 脚本会校验 `size` 和 `sha256` 再落盘，传上去的内容和 Release 一致。
 
 `--allow-http` 只用于本地自检，公网镜像必须是 https。
+
+### 发版自动同步（可选）
+
+在 GitHub 仓库 Settings → Secrets and variables → Actions 里加：
+
+- `R2_ACCESS_KEY_ID`
+- `R2_SECRET_ACCESS_KEY`
+- 可选 `R2_ENDPOINT`（默认本项目的 R2 账号地址）
+- 可选 `R2_BUCKET`（默认 `yq-mirror`）
+
+之后打 `v*` tag 发版，release workflow 会自动把 `latest.json` 和包传到
+`<镜像>/yq/`，并检查公开地址是否已读到新版本。没配这些 secrets 时这一步
+直接跳过，Release 不受影响。
 
 ## 注意
 

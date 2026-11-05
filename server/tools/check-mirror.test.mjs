@@ -128,6 +128,33 @@ test('镜像：本地目录发布写入 latest.json 和同名包，并清理最�
   assert.equal(existsSync(join(dir, 'yuyue3-0.2.0.tar.gz')), true, 'keep=2 时第二新的旧包要留着');
 });
 
+test('镜像：可以用本地清单和本地包发布，不需要联网', async (t) => {
+  const dir = tmp(t);
+  const pkg = Buffer.from('local-package-bytes');
+  const sha = sha256Hex(pkg);
+  const manifest = {
+    version: '1.0.1',
+    download: 'https://github.com/o/r/releases/download/v1.0.1/yuyue3-1.0.1.tar.gz',
+    sha256: sha,
+    size: pkg.length,
+  };
+  const manifestFile = join(dir, 'latest.src.json');
+  const packageFile = join(dir, 'pkg.tar.gz');
+  writeFileSync(manifestFile, JSON.stringify(manifest));
+  writeFileSync(packageFile, pkg);
+
+  const out = await publishToDir({
+    manifestFile,
+    packageFile,
+    dir: join(dir, 'mirror'),
+    log: () => {},
+  });
+
+  assert.equal(out.version, '1.0.1');
+  assert.equal(readFileSync(join(dir, 'mirror', 'yuyue3-1.0.1.tar.gz')).compare(pkg), 0);
+  assert.equal(JSON.parse(readFileSync(join(dir, 'mirror', 'latest.json'), 'utf8')).version, '1.0.1');
+});
+
 test('镜像：sha256 对不上时拒绝落盘，不覆盖已有 latest.json', async (t) => {
   const dir = tmp(t);
   mkdirSync(dir, { recursive: true });

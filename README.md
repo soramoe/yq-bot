@@ -222,7 +222,7 @@ npm run login              # 独立扫码登录（127.0.0.1:8898；服务在跑�
 npm run probe   <房间号>    # 探针：连上房间，事件逐条打出来
 npm run smoke   <房间号>    # 端到端：收一段再从日志重放，比对统计
 npm run demo    <房间号>    # 演练：真实房间 + 真实进场，看欢迎语会说什么（不真的发）
-npm run check              # 全部自检（857 项）
+npm run check              # 全部自检（858 项）
 ```
 
 `demo` 是安全的：dryRun 打开后不会真的发弹幕，可以拿任何直播间试。
@@ -504,7 +504,7 @@ npm run login        # 扫码登录（127.0.0.1:8898，终端也会打印二维�
 npm run probe  <房间号> [秒]   # 探针：连上真实房间，把事件逐条打出来
 npm run smoke  <房间号> [秒]   # 端到端：收一段弹幕，再从日志重放比对统计
 
-npm run check        # 全部自检（857 项，全离线）
+npm run check        # 全部自检（858 项，全离线）
 npm run check:p0     # 只跑地基
 npm run check:qr     # 只跑二维码编码器
 npm run check:login  # 只跑登录链路
@@ -591,6 +591,10 @@ node scripts/mirror-release.mjs --dir D:\mirror\yq --keep 5 --base https://mirro
 set S3_ACCESS_KEY=... && set S3_SECRET_KEY=...
 node scripts/mirror-release.mjs --s3 yq-mirror --endpoint https://<账号>.r2.cloudflarestorage.com --prefix yq
 ```
+
+也可以交给 GitHub Actions：在仓库 Secrets 里配 `R2_ACCESS_KEY_ID` /
+`R2_SECRET_ACCESS_KEY`（可选 `R2_ENDPOINT`、`R2_BUCKET`），之后打 `v*` tag
+发版会自动把清单和包同步到镜像，并检查公开地址；没配就跳过，不影响 Release。
 
 脚本会读清单、下载包、按 `sha256` / `size` 校验，再写/传到镜像；
 本地目录模式默认保留最近 5 个旧包，给还没升的机器留退路。

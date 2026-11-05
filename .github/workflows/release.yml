@@ -70,3 +70,43 @@ jobs:
             latest.json \
             --title "渔月崽三代 v${VERSION}" \
             --generate-notes
+
+      # 发版后自动把清单和包同步到 R2 镜像。没配 secrets 时这一步直接跳过，
+      # 不影响 Release 本身；配了就不用每次手动跑 mirror-release.mjs。
+      - name: Sync mirror (Cloudflare R2)
+        env:
+          S3_ACCESS_KEY: ${{ secrets.R2_ACCESS_KEY_ID }}
+          S3_SECRET_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          R2_ENDPOINT: ${{ secrets.R2_ENDPOINT }}
+          R2_BUCKET: ${{ secrets.R2_BUCKET }}
+        run: |
+          if [ -z "$S3_ACCESS_KEY" ] || [ -z "$S3_SECRET_KEY" ]; then
+            echo "R2 secrets 未配置，跳过镜像同步"
+            exit 0
+          fi
+          ENDPOINT="${R2_ENDPOINT:-https://7403063f14f3cd4b75b4e28bce4db57e.r2.cloudflarestorage.com}"
+          BUCKET="${R2_BUCKET:-yq-mirror}"
+          VERSION="${GITHUB_REF_NAME#v}"
+          node scripts/mirror-release.mjs \
+            --s3 "$BUCKET" \
+            --endpoint "$ENDPOINT" \
+            --prefix yq \
+            --manifest-file latest.json \
+            --package-file "$RUNNER_TEMP/yuyue3-${VERSION}.tar.gz"
+
+          # 公开地址有缓存，给几次机会再判定；失败只告警，不把 Release 标红。
+          BASE="${R2_PUBLIC_BASE:-https://pub-1c052ae1726e4964913fac13a4cbd08f.r2.dev/yq}"
+          OK=0
+          for i in 1 2 3 4 5; do
+            CODE="$(curl -s -o /tmp/mirror-latest.json -w '%{http_code}' "$BASE/latest.json" || true)"
+            if [ "$CODE" = "200" ] && grep -q "\"$VERSION\"" /tmp/mirror-latest.json; then
+              OK=1
+              break
+            fi
+            sleep 2
+          done
+          if [ "$OK" = "1" ]; then
+            echo "镜像已更新：$BASE/latest.json"
+          else
+            echo "::warning::镜像公开地址暂时没读到 v$VERSION，稍后手动确认 $BASE/latest.json"
+          fi
