@@ -345,7 +345,8 @@ export class EventLog {
   }
 
   _putCache(key, events) {
-    if (key) this._readCache = { key, events }
+    // 存副本：miss 路径下这个数组会直接返回给调用方，不能和缓存共用一份
+    if (key) this._readCache = { key, events: events.slice() }
   }
 
   readAll() {

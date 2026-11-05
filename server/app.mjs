@@ -520,18 +520,25 @@ export class App {
 
   _loadConfig() {
     const path = this._configPath();
+    let mainError = null;
     try {
       return JSON.parse(readFileSync(path, 'utf8'));
+    } catch (err) {
+      mainError = err;
+    }
+    // 主配置被写坏时退到上一次的备份，不能默默当成"什么都没配"，
+    // 否则用户重启后会看到房间、webhook、阈值全部凭空消失。
+    try {
+      const backup = JSON.parse(readFileSync(`${path}.bak`, 'utf8'));
+      this.log.warn('[配置] data/app.json 读不出来，已从上一次备份 app.json.bak 恢复');
+      return backup;
     } catch {
-      // 主配置被写坏时退到上一次的备份，不能默默当成"什么都没配"，
-      // 否则用户重启后会看到房间、webhook、阈值全部凭空消失。
-      try {
-        const backup = JSON.parse(readFileSync(`${path}.bak`, 'utf8'));
-        this.log.warn('[配置] data/app.json 读不出来，已从上一次备份 app.json.bak 恢复');
-        return backup;
-      } catch {
-        return {};
+      // 第一次启动没有配置文件是正常情况，不刷 warning；
+      // 但如果主文件存在却读不出来、备份也没了，就是真的丢配置了，必须说出来。
+      if (mainError?.code !== 'ENOENT') {
+        this.log.warn('[配置] data/app.json 与 app.json.bak 都读不出来，按空配置启动');
       }
+      return {};
     }
   }
 
@@ -563,11 +570,15 @@ export class App {
     const tmp = `${path}.tmp`;
     try {
       mkdirSync(this.dataDir, { recursive: true });
-      // 先留上一份好配置：原子写只防"写了一半"，防不了"内容被改坏"
+      // 先留上一份好配置：原子写只防"写了一半"，防不了"内容被改坏"。
+      // 但**坏掉的 app.json 不配当备份** —— 用户手改坏了文件，下一次保存
+      // 不能把上一份能读的 .bak 也覆盖掉，否则两个一起坏，配置彻底没了。
       try {
+        const current = readFileSync(path, 'utf8');
+        JSON.parse(current);
         copyFileSync(path, `${path}.bak`);
       } catch {
-        // 第一次保存时还没有旧文件，不算失败
+        // 没有旧文件，或旧文件本身已经坏了：保留已有的 .bak
       }
       // 原子写：先写临时文件再改名，避免断电留下半个 JSON 文件
       writeFileSync(tmp, data, 'utf8');
@@ -611,6 +622,8 @@ export class App {
    */
   markScRead(ids) {
     const set = this._loadScRead();
+    // 写盘失败要能整份回滚：包括"超过上限挤掉的最早几条"
+    const before = [...set];
     const added = [];
     for (const id of Array.isArray(ids) ? ids : []) {
       if (typeof id !== 'string') continue;
@@ -630,7 +643,7 @@ export class App {
       writeFileSync(tmp, JSON.stringify({ ids: [...set] }, null, 2), 'utf8');
       renameSync(tmp, path);
     } catch (err) {
-      for (const id of added) set.delete(id);
+      this._scReadIds = new Set(before);
       this.log.warn(`保存醒目留言已读状态失败：${err.message}`);
       throw { status: 500, code: 'save_failed', message: '保存已读状态失败：写不进 data/sc-read.json' };
     }
@@ -1266,8 +1279,10 @@ export class App {
     this._notifyBigSpend(room, rec);
     // 礼物目标同样挂在内核层：插件关掉不影响"本场进度走到哪"
     this._notifyGoal(room, rec);
-    // 回访看的是"这场之前"的付费记录；新场次开始后旧索引立刻作废
-    if (rec.type === 'LIVE_START') {
+    // 回访看的是"这场之前"的付费记录；新场次开始后旧索引立刻作废。
+    // 只处理当前房间：后台房间开播不该清掉正在看的这一场的索引，
+    // 否则同一场里的老观众会被重复提醒一遍。
+    if (rec.type === 'LIVE_START' && this._isActive(room)) {
       this._patronIndex = null;
       this._patronWarmKey = '';
       this._patronSaid.clear();
@@ -1389,6 +1404,9 @@ export class App {
   _notifyGoal(room, rec) {
     const goal = this.giftGoalBattery;
     if (!goal || rec?.type !== 'GIFT') return;
+    // 目标是给"页面正在看的这一场"设的；后台房间的礼物不该在
+    // 当前页面上喊过半/达成，否则观众会把别人的进度当成这间的。
+    if (!this._isActive(room)) return;
 
     const proj = room?.runner?.projection;
     if (!proj || typeof proj.snapshot !== 'function') return;
@@ -1641,7 +1659,9 @@ export class App {
     const runner = room?.runner;
     const log = runner?.log_;
     const session = runner?.projection?.session;
-    if (!log || !session?.id) return;
+    // session 还指着上一场（没开播时投影不会清空它）就不能拿来预热：
+    // 否则离线期间进房的人会被当成"回访"提醒一遍。
+    if (!log || !session?.id || session.closed) return;
 
     const start = Number(session.startedAt) || 0;
     if (!start) return;
@@ -1687,6 +1707,9 @@ export class App {
       }
       this._patronIndex = { key, map };
     } catch (err) {
+      // 读取失败时把 key 放掉，否则这一场再也不会重试；
+      // 下一条 ENTER 会再试一次（_notifyPatronReturn 的兜底）。
+      if (this._patronWarmKey === key) this._patronWarmKey = '';
       this.log.warn(`[回访] 读取历史付费用户失败：${err?.message ?? err}`);
     }
   }
@@ -1706,7 +1729,16 @@ export class App {
     if (!uid || uid === '0') return;
 
     const idx = this._patronIndex;
-    if (!idx) return;
+    if (!idx) {
+      // 启动时投影可能还没建好、或上次读日志失败；来 ENTER 时补一次。
+      // _warmPatrons 自己按 key 去重，不会因为进房频繁而反复读盘。
+      if (this._isActive(room)) {
+        this._warmPatrons().catch((err) =>
+          this.log.warn(`[回访] 延迟预热失败：${err?.message ?? err}`),
+        );
+      }
+      return;
+    }
     const sessionId = room?.runner?.projection?.session?.id;
     if (!sessionId || idx.key !== `${room.key}:${sessionId}:${threshold}`) return;
 
@@ -1716,7 +1748,14 @@ export class App {
     const saidKey = `${room.key}:${sessionId}:${uid}`;
     if (this._patronSaid.has(saidKey)) return;
     this._patronSaid.add(saidKey);
-    if (this._patronSaid.size > 1000) this._patronSaid.clear();
+    if (this._patronSaid.size > 1000) {
+      // 只丢最早的一半，别一次清空：清空会让同一场里的老观众再被提醒一遍
+      let drop = 500;
+      for (const old of this._patronSaid) {
+        if (drop-- <= 0) break;
+        this._patronSaid.delete(old);
+      }
+    }
 
     const roomId = room.runner?.realRoomId || room.key;
     const name = patronNameOf(rec) || hit.name || `uid ${uid}`;

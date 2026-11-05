@@ -1569,6 +1569,34 @@ test('礼物目标：过半与达成各播一次，重复事件不重复喊', as
   assert.equal(notices.filter((m) => /目标/.test(m.data.text)).length, 2)
 })
 
+test('礼物目标：后台房间的礼物不往当前页面报目标', async (t) => {
+  const { app } = makeApp(t, {
+    rooms: ['100', '200'],
+    activeRoomId: '100',
+    cfg: { giftGoalBattery: 10_000 },
+  })
+  await app.start()
+
+  const bg = app.rooms.get('200').runner
+  bg.projection = { snapshot: () => ({ giftBattery: 10_000, sessionId: 's-bg' }) }
+
+  const notices = []
+  app.subscribe((m) => {
+    if (m.type === 'notice') notices.push(m)
+  })
+
+  bg.push({
+    seq: 1,
+    ts: 1_700_000_002_000,
+    type: 'GIFT',
+    payload: { uid: '7', uname: '甲', giftName: '火箭', battery: 10_000, isPaid: true },
+  })
+  await bigTick()
+
+  assert.equal(bg.gate.said.length, 0, '后台房间过线也不该让闸门说话')
+  assert.equal(notices.filter((m) => /目标/.test(m.data.text)).length, 0)
+})
+
 test('礼物目标：为 0 或关掉播报时，页内提示照旧但不出声', async (t) => {
   const { app: off } = makeApp(t, { rooms: ['100'] })
   await off.start()
@@ -1700,6 +1728,89 @@ test('回访提醒：这场之前付过钱的观众再进房，只响一次；�
   // 没到门槛的付费用户不算"值得提醒的回访"
   runner.push({ seq: 13, ts: start + 300, type: 'ENTER', payload: { uid: '8', uname: '乙' } })
   assert.equal(notices.length, 1)
+})
+
+test('回访提醒：后台房间开播不能清掉当前房间的回访索引', async (t) => {
+  const { app } = makeApp(t, {
+    rooms: ['100', '200'],
+    activeRoomId: '100',
+    cfg: { patronReturnBattery: 500 },
+  })
+  await app.start()
+
+  // 假装当前房间已经预热过：索引和"说过了"都有内容
+  app._patronIndex = { key: '100:s1:500', map: new Map() }
+  app._patronSaid.add('100:s1:7')
+
+  const bg = app.rooms.get('200').runner
+  bg.push({ seq: 1, ts: Date.now(), type: 'LIVE_START', payload: { liveTime: 1 } })
+
+  assert.equal(app._patronIndex?.key, '100:s1:500', '后台开播不该动当前房间的索引')
+  assert.equal(app._patronSaid.has('100:s1:7'), true, '也不该清掉当前房间的去重记录')
+})
+
+test('回访提醒：投影还指着上一场时不预热，离线进房也不会误报', async (t) => {
+  const { app } = makeApp(t, { rooms: ['100'], cfg: { patronReturnBattery: 500 } })
+  await app.start()
+
+  const runner = app.runner
+  let reads = 0
+  runner.projection = {
+    session: { id: 's-old', startedAt: 1_700_000_000_000, closed: true },
+    snapshot: () => ({ sessionId: 's-old' }),
+  }
+  runner.log_ = {
+    readAllAsync: async () => {
+      reads += 1
+      return [
+        { seq: 1, ts: 1_699_999_999_000, type: 'GIFT', payload: { uid: '7', uname: '甲', battery: 900 } },
+      ]
+    },
+  }
+
+  await app._warmPatrons()
+  assert.equal(reads, 0, '上一场已经封存，不该拿它预热')
+  assert.equal(app._patronIndex, null)
+
+  const notices = []
+  app.subscribe((msg) => {
+    if (msg.type === 'notice') notices.push(msg.data.text)
+  })
+  runner.push({ seq: 1, ts: 1_700_000_001_000, type: 'ENTER', payload: { uid: '7', uname: '甲' } })
+  assert.equal(notices.filter((x) => /回访/.test(x)).length, 0)
+})
+
+test('回访提醒：预热失败后，下一次进房还会重试', async (t) => {
+  const { app } = makeApp(t, { rooms: ['100'], cfg: { patronReturnBattery: 500 } })
+  await app.start()
+
+  const runner = app.runner
+  const start = 1_700_000_000_000
+  runner.projection = { session: { id: 's1', startedAt: start } }
+  let fail = true
+  runner.log_ = {
+    readAllAsync: async () => {
+      if (fail) throw new Error('磁盘忙')
+      return [
+        { seq: 1, ts: start - 500, type: 'GIFT', payload: { uid: '7', uname: '甲', battery: 900 } },
+      ]
+    },
+  }
+
+  const notices = []
+  app.subscribe((msg) => {
+    if (msg.type === 'notice') notices.push(msg.data.text)
+  })
+
+  await app._warmPatrons()
+  assert.equal(app._patronWarmKey, '', '失败后必须放掉 key，不能把这一场锁死')
+
+  fail = false
+  // 第一条 ENTER 触发延迟预热（这次会成功），预热完成后第二条才会命中
+  runner.push({ seq: 11, ts: start + 100, type: 'ENTER', payload: { uid: '7', uname: '甲' } })
+  await new Promise((r) => setImmediate(r))
+  runner.push({ seq: 12, ts: start + 200, type: 'ENTER', payload: { uid: '7', uname: '甲' } })
+  assert.equal(notices.length, 1, '重试成功后要能正常提醒')
 })
 
 test('回访提醒：0 = 关闭；改门槛后旧索引作废', async (t) => {

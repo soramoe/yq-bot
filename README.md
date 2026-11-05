@@ -192,7 +192,7 @@ npm run login              # 扫码登录（127.0.0.1:8898，终端也会打印�
 npm run probe   <房间号>    # 探针：连上房间，事件逐条打出来
 npm run smoke   <房间号>    # 端到端：收一段再从日志重放，比对统计
 npm run demo    <房间号>    # 演练：真实房间 + 真实进场，看欢迎语会说什么（不真的发）
-npm run check              # 全部自检（642 项）
+npm run check              # 全部自检（647 项）
 ```
 
 `demo` 是安全的：dryRun 打开后不会真的发弹幕，可以拿任何直播间试。
@@ -449,7 +449,7 @@ npm run login        # 扫码登录（127.0.0.1:8898，终端也会打印二维�
 npm run probe  <房间号> [秒]   # 探针：连上真实房间，把事件逐条打出来
 npm run smoke  <房间号> [秒]   # 端到端：收一段弹幕，再从日志重放比对统计
 
-npm run check        # 全部自检（642 项，全离线）
+npm run check        # 全部自检（647 项，全离线）
 npm run check:p0     # 只跑地基
 npm run check:qr     # 只跑二维码编码器
 npm run check:login  # 只跑登录链路

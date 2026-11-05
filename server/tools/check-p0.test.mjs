@@ -238,10 +238,13 @@ test('事件日志：同一批文件重复全量读走缓存，追加后立刻�
 
   const first = await log.readAllAsync()
   assert.equal(first.length, 20)
+  // 未命中的那一次返回的数组同样不能和缓存共用：改了它，下一次读不能看到
+  first.push({ seq: 999 })
   const hitsBefore = log.stats().readCacheHits
 
   const second = await log.readAllAsync()
-  assert.deepEqual(second, first, '命中缓存时内容必须与首次一致')
+  assert.equal(second.length, 20, '改首次返回值不能改到缓存里的数组')
+  assert.deepEqual(second, first.slice(0, 20), '命中缓存时内容必须与首次一致')
   assert.equal(log.stats().readCacheHits, hitsBefore + 1, '第二次应当命中缓存')
 
   // 缓存返回副本：调用方顺手 push 不能污染下一次读取

@@ -294,13 +294,14 @@ function handle(msg) {
       break;
     }
     case 'reset':
-      // 换房间：上一间的礼物和时长不能挂到新房间头上
+      // 换房间：上一间的礼物、时长和付费榜都不能挂到新房间头上
       gifts = [];
       lastSeq = 0;
       startedAt = 0;
       liveState = 'offline';
       renderGifts();
       renderClock();
+      loadPaid();
       reconnect();
       break;
     default:

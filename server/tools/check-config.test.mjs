@@ -188,6 +188,23 @@ test('应用：app.json 被写坏时从上一次备份恢复，而不是当成�
   assert.equal(cfg.plugins.welcome.cooldownSec, undefined, '备份里没有第二次的改动')
 })
 
+test('应用：app.json 坏了之后再保存，不能把上一份好备份覆盖掉', async (t) => {
+  const dir = tmp(t)
+  const { app } = await makeApp(t, { dataDir: dir })
+
+  app.updatePluginConfig('welcome', { template: '好配置' })
+  app.updatePluginConfig('welcome', { cooldownSec: 5 }) // .bak = 好配置
+
+  writeFileSync(join(dir, 'app.json'), '{ 手改坏了', 'utf8')
+  // 在坏文件之上再保存一次：这次绝不能把坏内容抄进 .bak
+  app.updatePluginConfig('welcome', { template: '坏文件之上再保存' })
+
+  writeFileSync(join(dir, 'app.json'), '{ 又坏了', 'utf8')
+  const app2 = new App({ dataDir: dir, roomId: '1901584685', dryRun: true })
+  const cfg = app2._loadConfig()
+  assert.equal(cfg.plugins.welcome.template, '好配置', '备份必须停在上一次能解析的配置')
+})
+
 test('应用：恢复默认会把这个插件的增量整条删掉，而不是存一份等于默认的值', async (t) => {
   const dir = tmp(t)
   const { app } = await makeApp(t, { dataDir: dir })
