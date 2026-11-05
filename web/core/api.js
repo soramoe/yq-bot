@@ -169,6 +169,9 @@ export const api = {
       method: 'POST',
       body: returnBattery === undefined ? { battery } : { battery, returnBattery },
     }),
+  songs: () => request('/api/songs'),
+  songAction: (id, action) =>
+    request('/api/songs/action', { method: 'POST', body: { id, action } }),
   /** SC 待读清单：同样读全量日志，超时放宽到 60 秒 */
   scQueue: ({ days = 30 } = {}) => request(`/api/sc?days=${days}`, { timeout: 60000 }),
   markScRead: (ids) => request('/api/sc/read', { method: 'POST', body: { ids } }),

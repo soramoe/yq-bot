@@ -34,6 +34,7 @@
             <input type="checkbox" id="dryrun-toggle" checked />
             <span>演练模式</span>
           </label>
+          <button class="btn btn-songs" id="btn-songs" type="button">点歌队列<span class="badge" id="songs-badge" hidden>0</span></button>
           <button class="btn btn-sc" id="btn-sc" type="button">SC 待读<span class="badge" id="sc-badge" hidden>0</span></button>
           <button class="btn" id="btn-patrons" type="button">付费用户榜</button>
           <button class="btn" id="btn-reports" type="button">战报</button>
@@ -112,6 +113,8 @@
     <dialog id="dlg-patrons" class="dlg-wide"></dialog>
 
     <dialog id="dlg-sc" class="dlg-wide"></dialog>
+
+    <dialog id="dlg-songs" class="dlg-wide"></dialog>
 
     <dialog id="dlg-plugins" class="dlg-wide">
       <div class="plg-wrap">

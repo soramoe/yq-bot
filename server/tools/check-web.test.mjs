@@ -2034,3 +2034,108 @@ test('礼物目标：页面控件必须真的接到 app.js', () => {
   assert.match(apiSrc, /\/api\/goal/, 'api.js 没有礼物目标接口')
 })
 
+/* ══════════════════ 点歌队列 ══════════════════ */
+
+const SONGS_DATA = {
+  current: { id: 's1', status: 'playing', song: '晴天', name: '甲', yuan: 30 },
+  queued: 1,
+  items: [
+    { id: 's1', status: 'playing', song: '晴天', name: '甲', yuan: 30 },
+    { id: 's2', status: 'queued', song: '后来', name: '乙', yuan: 50 },
+  ],
+}
+
+async function mountSong(t, { data = SONGS_DATA, fail = '' } = {}) {
+  installDom()
+  const calls = []
+  const api = {
+    songs: async () => {
+      if (fail) throw new Error(fail)
+      return { ok: true, ...data }
+    },
+    songAction: async (id, action) => {
+      calls.push({ id, action })
+      if (fail) throw new Error(fail)
+      return { ok: true, item: { id, action } }
+    },
+  }
+
+  const { createSongQueue } = await import('../../web/views/song-queue.js')
+  const dlg = new FakeNode('dialog')
+  dlg.open = false
+  dlg.showModal = () => {
+    dlg.open = true
+  }
+  dlg.close = () => {
+    dlg.open = false
+  }
+  const badge = new FakeNode('span')
+  const toasts = []
+  const view = createSongQueue({
+    dlg,
+    badge,
+    api,
+    toast: (text, level = 'info') => toasts.push({ text, level }),
+  })
+  return { view, dlg, badge, toasts, calls }
+}
+
+test('点歌队列：打开渲染条目，徽标只数排队中的', async (t) => {
+  const { view, dlg, badge } = await mountSong(t)
+  view.open()
+  assert.equal(dlg.open, true)
+  await new Promise((r) => setImmediate(r))
+
+  assert.equal(dlg.all('song-row').length, 2)
+  assert.match(dlg.textContent, /晴天/)
+  assert.match(dlg.textContent, /正在播放：晴天/)
+  assert.equal(badge.textContent, '1', '播放中的那条不算徽标')
+  assert.equal(badge.hidden, false)
+})
+
+test('点歌队列：播放切换当前条，完成会移除并更新徽标', async (t) => {
+  const { view, dlg, badge, calls } = await mountSong(t)
+  view.open()
+  await new Promise((r) => setImmediate(r))
+
+  const play = dlg.all('song-actions').find((row) => row.textContent.includes('播放'))
+  play.all('btn').find((b) => b.textContent === '播放').listeners.click[0]()
+  await new Promise((r) => setImmediate(r))
+  assert.deepEqual(calls.at(-1), { id: 's2', action: 'play' })
+  assert.match(dlg.textContent, /正在播放：后来/)
+
+  dlg.all('song-row')[1].all('btn').find((b) => b.textContent === '完成').listeners.click[0]()
+  await new Promise((r) => setImmediate(r))
+  assert.deepEqual(calls.at(-1), { id: 's2', action: 'done' })
+  assert.equal(dlg.all('song-row').length, 1)
+})
+
+test('点歌队列：接口失败只提示，不把队列改坏', async (t) => {
+  const { view, dlg, badge, toasts } = await mountSong(t, { fail: '写不进 data/songs.json' })
+  view.open()
+  await new Promise((r) => setImmediate(r))
+  assert.match(toasts[0].text, /点歌队列打不开/)
+
+  const empty = await mountSong(t, { data: { current: null, queued: 0, items: [] } })
+  empty.view.open()
+  await new Promise((r) => setImmediate(r))
+  assert.match(empty.dlg.textContent, /还没有人点歌/)
+  assert.equal(empty.badge.hidden, true)
+})
+
+test('点歌队列：页面控件必须真的接到 app.js', () => {
+  const html = readFileSync(join(process.cwd(), 'web/index.html'), 'utf8')
+  const app = readFileSync(join(process.cwd(), 'web/app.js'), 'utf8')
+  const apiSrc = readFileSync(join(process.cwd(), 'web/core/api.js'), 'utf8')
+
+  for (const id of ['btn-songs', 'songs-badge', 'dlg-songs']) {
+    assert.ok(html.includes(`id="${id}"`), `index.html 里没有 #${id}`)
+  }
+  assert.match(app, /createSongQueue\s*\(/)
+  assert.match(app, /songsBadge:\s*\$\('#songs-badge'\)/)
+  assert.match(app, /songQueue\.open\(\)/)
+  assert.match(app, /case 'songs':/, 'WebSocket 的 songs 广播没有接')
+  assert.match(apiSrc, /\/api\/songs/)
+  assert.match(apiSrc, /songAction/)
+})
+

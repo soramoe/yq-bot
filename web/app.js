@@ -21,6 +21,7 @@ import { createNotifyConfig } from './views/notify-config.js';
 import { createGoalConfig } from './views/goal-config.js';
 import { createPatrons } from './views/patrons.js';
 import { createScQueue } from './views/sc-queue.js';
+import { createSongQueue } from './views/song-queue.js';
 import { buildRoomRows, summarizeRooms } from './views/room-overview.js';
 import { installPwa } from './core/pwa.js';
 
@@ -38,9 +39,12 @@ const dom = {
   btnPatrons: $('#btn-patrons'),
   btnSc: $('#btn-sc'),
   scBadge: $('#sc-badge'),
+  btnSongs: $('#btn-songs'),
+  songsBadge: $('#songs-badge'),
   dlgReports: $('#dlg-reports'),
   dlgPatrons: $('#dlg-patrons'),
   dlgSc: $('#dlg-sc'),
+  dlgSongs: $('#dlg-songs'),
   stats: $('#stats'),
   stream: $('#stream'),
   filters: $('#filters'),
@@ -96,6 +100,9 @@ const patrons = createPatrons({ dlg: dom.dlgPatrons, toast });
 // SC 待读：和榜单一样平时不拉，打开才读日志；徽标靠实时事件自己抬
 const scQueue = createScQueue({ dlg: dom.dlgSc, badge: dom.scBadge, toast });
 
+// 点歌队列由内核收进 data/songs.json；页面只读，动作走 /api/songs/action
+const songQueue = createSongQueue({ dlg: dom.dlgSongs, badge: dom.songsBadge, api, toast });
+
 // 提醒 webhook 的设置面板在「房间总览」里：它的作用域就是"所有房间"，
 // 单独开一页反而会让人以为只对当前这间生效
 const notifyConfig = createNotifyConfig({
@@ -133,6 +140,10 @@ dom.btnPatrons?.addEventListener('click', () => {
 
 dom.btnSc?.addEventListener('click', () => {
   scQueue.open();
+});
+
+dom.btnSongs?.addEventListener('click', () => {
+  songQueue.open();
 });
 
 const state = {
@@ -370,6 +381,10 @@ function handle(msg) {
       if (dom.dlgPlugins?.open) settings.reload();
       break;
 
+    case 'songs':
+      songQueue.update(msg.data);
+      break;
+
     case 'reset':
       store.reset();
       stream.reset();
@@ -387,6 +402,8 @@ function handle(msg) {
       patrons.refreshIfOpen();
       // 未读是分房间的：切过去还挂着上一间的徽标会让人以为新房间有 SC
       scQueue.reset();
+      // 点歌队列是全局的，但页面显示的"正在播放"要跟新房间的播报对齐
+      songQueue.refreshIfOpen();
       refreshStatus();
       // 换房间：服务端缓冲已经换成新房间的，但 backlog 只在建连时发，
       // 不重连就永远缺着新房间开头那一段

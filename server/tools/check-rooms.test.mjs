@@ -1875,3 +1875,91 @@ test('回访提醒：0 = 关闭；改门槛后旧索引作废', async (t) => {
   const cfg = JSON.parse(readFileSync(join(dataDir, 'app.json'), 'utf8'))
   assert.equal(cfg.patronReturnBattery, 500)
 })
+
+test('点歌：SC 里「点歌 xxx」进队列并播报，别的消息不收', async (t) => {
+  const { app, dataDir } = makeApp(t, { rooms: ['100'] })
+  await app.start()
+  const runner = app.runner
+  const broadcasts = []
+  app.subscribe((msg) => { if (msg.type === 'songs') broadcasts.push(msg.data) })
+
+  runner.push({ seq: 1, ts: 1, type: 'SUPER_CHAT', payload: { uid: '7', uname: '甲', text: '点歌 晴天', yuan: 30 } })
+  const v = app.songsView()
+  assert.equal(v.items.length, 1)
+  assert.equal(v.current.song, '晴天')
+  assert.equal(v.queued, 1)
+  assert.equal(runner.gate.said.length, 1)
+  assert.equal(runner.gate.said[0].text, '已点歌：晴天（下一首）')
+  assert.equal(broadcasts.at(-1).items.length, 1)
+
+  runner.push({ seq: 2, ts: 2, type: 'SUPER_CHAT', payload: { uid: '8', uname: '乙', text: '主播好', yuan: 30 } })
+  runner.push({ seq: 3, ts: 3, type: 'DANMAKU', payload: { uid: '9', uname: '丙', text: '点歌 后来' } })
+  assert.equal(app.songsView().items.length, 1, '非点歌 SC / 普通弹幕都不进队列')
+
+  // 同一个人点同一首、还在队里：不重复加、也不重复播报
+  runner.push({ seq: 4, ts: 4, type: 'SUPER_CHAT', payload: { uid: '7', uname: '甲', text: '点歌 晴天', yuan: 30 } })
+  assert.equal(app.songsView().items.length, 1)
+  assert.equal(runner.gate.said.length, 1)
+
+  const saved = JSON.parse(readFileSync(join(dataDir, 'songs.json'), 'utf8'))
+  assert.equal(saved.items.length, 1)
+  assert.equal(saved.items[0].song, '晴天')
+})
+
+test('点歌：后台房间的 SC 不进当前队列', async (t) => {
+  const { app } = makeApp(t, { rooms: ['100', '200'], activeRoomId: '100' })
+  await app.start()
+  const bg = app.rooms.get('200').runner
+  bg.push({ seq: 1, ts: 1, type: 'SUPER_CHAT', payload: { uid: '7', uname: '甲', text: '点歌 晴天', yuan: 30 } })
+  assert.equal(app.songsView().items.length, 0)
+  assert.equal(bg.gate.said.length, 0, '后台房间也不该播报')
+})
+
+test('点歌接口：播放 / 完成 / 跳过与落盘', async (t) => {
+  const { app, dataDir } = makeApp(t, { rooms: ['100'] })
+  await app.start()
+  const routes = buildRoutes(app)
+  const { Readable } = await import('node:stream')
+  const runner = app.runner
+  runner.push({ seq: 1, ts: 1, type: 'SUPER_CHAT', payload: { uid: '7', uname: '甲', text: '点歌 晴天', yuan: 30 } })
+  runner.push({ seq: 2, ts: 2, type: 'SUPER_CHAT', payload: { uid: '8', uname: '乙', text: '点歌 后来', yuan: 50 } })
+  const [first, second] = app.songsView().items
+  assert.equal(app.songsView().queued, 2)
+
+  const get = async () => {
+    const res = fakeRes()
+    await routes.match('GET', '/api/songs').handler({ req: {}, res, url: new URL('http://x/api/songs'), app })
+    return JSON.parse(res.body)
+  }
+  const post = async (body) => {
+    const res = fakeRes()
+    const req = Readable.from([Buffer.from(JSON.stringify(body))])
+    req.headers = { 'content-type': 'application/json' }
+    await routes.match('POST', '/api/songs/action').handler({
+      req, res, url: new URL('http://x/api/songs/action'), app,
+    })
+    return res
+  }
+
+  assert.equal((await get()).items.length, 2)
+
+  const played = await post({ id: first.id, action: 'play' })
+  assert.equal(played.statusCode, 200)
+  assert.equal(JSON.parse(played.body).item.status, 'playing')
+  assert.equal(runner.gate.said.at(-1).text, '接下来播放：晴天')
+  assert.equal(app.songsView().queued, 1)
+
+  const done = await post({ id: first.id, action: 'done' })
+  assert.equal(done.statusCode, 200)
+  assert.equal(app.songsView().items.length, 1)
+
+  const skipped = await post({ id: second.id, action: 'skip' })
+  assert.equal(skipped.statusCode, 200)
+  assert.equal(app.songsView().items.length, 0)
+
+  assert.equal((await post({ id: 's1-7', action: 'bogus' })).statusCode, 400)
+  assert.equal((await post({ id: 'nope', action: 'play' })).statusCode, 404)
+
+  const saved = JSON.parse(readFileSync(join(dataDir, 'songs.json'), 'utf8'))
+  assert.equal(saved.items.length, 0)
+})

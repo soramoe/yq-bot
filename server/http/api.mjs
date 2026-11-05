@@ -616,6 +616,34 @@ export function buildRoutes(app) {
     sendJson(res, { ok: true, ...saved });
   });
 
+  /* SC 点歌队列。
+     SC 里的「点歌 xxx」由内核收进 data/songs.json；这里只负责读和人工动作。
+     动作（播放/完成/跳过）是人为决定，必须落盘，不能用日志重放推导。 */
+  r.get('/api/songs', async ({ res }) => {
+    sendJson(res, { ok: true, ...app.songsView() });
+  });
+
+  r.post('/api/songs/action', async ({ req, res }) => {
+    const body = await readJson(req);
+    const id = typeof body?.id === 'string' ? body.id.trim() : '';
+    const action = typeof body?.action === 'string' ? body.action.trim() : '';
+    if (!id || !['play', 'done', 'skip'].includes(action)) {
+      sendError(res, 400, 'bad_request', '需要 { "id": "s100-1", "action": "play|done|skip" }');
+      return;
+    }
+    let item;
+    try {
+      item = app.songAction(id, action);
+    } catch (err) {
+      if (err?.status) {
+        sendError(res, err.status, err.code ?? 'bad_request', err.message);
+        return;
+      }
+      throw err;
+    }
+    sendJson(res, { ok: true, item });
+  });
+
   /* 醒目留言待读清单。
      消息本体来自日志重放（和战报/榜单同源），"已读"单独落盘在
      data/sc-read.json —— 它只是清单的投影，丢了顶多重新标一遍。 */

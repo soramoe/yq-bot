@@ -22,6 +22,14 @@ import { buildDiagnostic } from './core/diagnostic.mjs';
 import { maskWebhook, notifyText, reportText, sendWebhook } from './core/notify.mjs';
 import { buildScQueue, MAX_READ_IDS } from './core/sc-queue.mjs';
 import {
+  MAX_SONG_ITEMS,
+  applySongAction,
+  parseSongRequest,
+  pushSong,
+  songPosition,
+  songQueueView,
+} from './core/song-queue.mjs';
+import {
   GOAL_TIERS,
   MAX_GOAL_BATTERY,
   goalMilestone,
@@ -194,6 +202,13 @@ export class App {
      * 它只是清单的投影：不参与统计，删了也只是"重新变成未读"。
      */
     this._scReadIds = null;
+
+    /**
+     * SC 点歌队列。状态是"播放中/排队中"这类人工动作，没法从日志重放出来，
+     * 所以单独存 `data/songs.json`；懒加载，读失败当空队列。
+     */
+    this.songQueue = [];
+    this._songsLoaded = false;
 
     /** 版本号要最先就位：下面的 UpdateChecker 构造时就要用 */
     this.version = readVersion();
@@ -674,6 +689,133 @@ export class App {
       throw { status: 500, code: 'save_failed', message: '保存已读状态失败：写不进 data/sc-read.json' };
     }
     return added.length;
+  }
+
+  /* ────────────────────── SC 点歌队列 ────────────────────── */
+
+  _songsPath() {
+    return join(this.dataDir, 'songs.json');
+  }
+
+  _loadSongs() {
+    if (this._songsLoaded) return this.songQueue;
+    this._songsLoaded = true;
+    try {
+      const raw = JSON.parse(readFileSync(this._songsPath(), 'utf8'));
+      const items = Array.isArray(raw?.items) ? raw.items : [];
+      this.songQueue = items
+        .filter(
+          (it) =>
+            it &&
+            typeof it === 'object' &&
+            typeof it.id === 'string' &&
+            it.id.trim() &&
+            typeof it.song === 'string' &&
+            it.song.trim() &&
+            (it.status === 'queued' || it.status === 'playing'),
+        )
+        .slice(-MAX_SONG_ITEMS)
+        .map((it) => ({
+          id: it.id,
+          seq: Number(it.seq) || 0,
+          ts: Number(it.ts) || 0,
+          uid: String(it.uid ?? ''),
+          name: String(it.name ?? ''),
+          song: String(it.song),
+          yuan: Number(it.yuan) || 0,
+          status: it.status,
+        }));
+    } catch {
+      // 第一次用、文件坏了：当空队列，不影响开播
+      this.songQueue = [];
+    }
+    return this.songQueue;
+  }
+
+  songsView() {
+    return songQueueView(this._loadSongs());
+  }
+
+  _broadcastSongs() {
+    this._emit({ type: 'songs', data: this.songsView() });
+  }
+
+  _saveSongs() {
+    mkdirSync(this.dataDir, { recursive: true });
+    const path = this._songsPath();
+    const tmp = `${path}.tmp`;
+    writeFileSync(tmp, JSON.stringify({ items: this.songQueue }, null, 2), 'utf8');
+    renameSync(tmp, path);
+  }
+
+  /**
+   * 一条 SC 进来时尝试收进点歌队列。
+   *
+   * 只处理当前房间：后台房间的 SC 如果也往同一个队列塞，页面上会突然多出
+   * 一首没听见点歌过程的歌。拦截发生在"是否活跃"这一层，而不是解析之前。
+   */
+  _enqueueSong(room, rec) {
+    if (!room || !rec || !this._isActive(room)) return;
+    const request = parseSongRequest(rec);
+    if (!request) return;
+
+    const item = pushSong(this._loadSongs(), request, rec);
+    if (!item) return;
+
+    try {
+      this._saveSongs();
+    } catch (err) {
+      this.log.warn(`[点歌] 保存队列失败：${err.message}`);
+    }
+    this._broadcastSongs();
+
+    const pos = songPosition(this.songQueue, item.id);
+    const text = pos <= 1 ? `已点歌：${item.song}（下一首）` : `已点歌：${item.song}（第 ${pos} 位）`;
+    this.log.info(`[点歌] ${item.name}：${item.song}`);
+    Promise.resolve(room.runner?.gate?.say?.({
+      roomId: room.runner?.realRoomId ?? room.key,
+      text,
+      reason: 'song_queue',
+      source: 'songs',
+      priority: 1,
+      maxWaitMs: 5000,
+    })).catch((err) => this.log.warn(`[点歌] 播报失败：${err?.message ?? err}`));
+  }
+
+  /**
+   * 播放 / 完成 / 跳过。
+   *
+   * 状态变化必须落盘：这是人工看过队列之后做的决定，重启后不能回到
+   * "这首歌又排在队首"。落盘失败就整份回滚并报 500，不能页面显示成功、
+   * 实际没存。
+   */
+  songAction(id, action) {
+    this._loadSongs();
+    const before = this.songQueue.map((it) => ({ ...it }));
+    const item = applySongAction(this.songQueue, id, action);
+    if (!item) throw { status: 404, code: 'song_not_found', message: '队列里没有这首歌' };
+
+    if (action === 'play') {
+      const text = `接下来播放：${item.song}`;
+      Promise.resolve(this.runner?.gate?.say?.({
+        roomId: this.runner?.realRoomId ?? '',
+        text,
+        reason: 'song_play',
+        source: 'songs',
+        priority: 1,
+        maxWaitMs: 5000,
+      })).catch((err) => this.log.warn(`[点歌] 播报失败：${err?.message ?? err}`));
+    }
+
+    try {
+      this._saveSongs();
+    } catch (err) {
+      this.songQueue = before;
+      this.log.warn(`[点歌] 保存队列失败：${err.message}`);
+      throw { status: 500, code: 'save_failed', message: '保存点歌队列失败：写不进 data/songs.json' };
+    }
+    this._broadcastSongs();
+    return item;
   }
 
   /** 演练模式开关。等价于"这台机器今天是否允许真的说话"。 */
@@ -1305,6 +1447,8 @@ export class App {
     this._notifyBigSpend(room, rec);
     // 礼物目标同样挂在内核层：插件关掉不影响"本场进度走到哪"
     this._notifyGoal(room, rec);
+    // SC 点歌：队列状态要跨重启保留，所以也放在内核层，不依赖 sc 插件
+    this._enqueueSong(room, rec);
     // 回访看的是"这场之前"的付费记录；新场次开始后旧索引立刻作废。
     // 只处理当前房间：后台房间开播不该清掉正在看的这一场的索引，
     // 否则同一场里的老观众会被重复提醒一遍。
