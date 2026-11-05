@@ -1519,7 +1519,10 @@ test('接口：POST /api/sc/read 校验 id 并落盘，重复标记不重复计�
 /* ══════════════════ 本场礼物目标 ══════════════════ */
 
 test('礼物目标：过半与达成各播一次，重复事件不重复喊', async (t) => {
-  const { app } = makeApp(t, { rooms: ['100'], cfg: { giftGoalBattery: 10_000 } })
+  const { app } = makeApp(t, {
+    rooms: ['100'],
+    cfg: { giftGoalBattery: 10_000, giftGoalTexts: { 30: '老板冲鸭！{当前}/{目标}' } },
+  })
   await app.start()
 
   const runner = app.rooms.get('100').runner
@@ -1546,7 +1549,7 @@ test('礼物目标：过半与达成各播一次，重复事件不重复喊', as
   runner.push(giftEv(5_000))
   await bigTick()
   assert.equal(runner.gate.said.length, 1)
-  assert.equal(runner.gate.said[0].text, '目标过半：¥500/¥1000')
+  assert.equal(runner.gate.said[0].text, '老板冲鸭！¥500/¥1000')
   assert.equal(runner.gate.said[0].priority, 1, '过线要抢一个弹幕槽位')
 
   gift = 10_000
@@ -1566,7 +1569,7 @@ test('礼物目标：过半与达成各播一次，重复事件不重复喊', as
   runner.push(replay)
   await bigTick()
   assert.equal(runner.gate.said.length, 2)
-  assert.equal(notices.filter((m) => /目标/.test(m.data.text)).length, 2)
+  assert.equal(notices.length, 2)
 })
 
 test('礼物目标：后台房间的礼物不往当前页面报目标', async (t) => {
@@ -1659,7 +1662,12 @@ test('接口：GET/POST /api/goal 校验整数并落盘', async (t) => {
     app,
   })
   assert.equal(get.statusCode, 200)
-  assert.deepEqual(JSON.parse(get.body), { ok: true, goalBattery: 0, announce: false })
+  assert.deepEqual(JSON.parse(get.body), {
+    ok: true,
+    goalBattery: 0,
+    announce: false,
+    texts: {},
+  })
 
   const { Readable } = await import('node:stream')
   const post = async (body) => {
@@ -1681,8 +1689,30 @@ test('接口：GET/POST /api/goal 校验整数并落盘', async (t) => {
 
   const ok = await post({ goalBattery: 20_000, announce: true })
   assert.equal(ok.statusCode, 200)
-  assert.deepEqual(JSON.parse(ok.body), { ok: true, goalBattery: 20_000, announce: true })
+  assert.deepEqual(JSON.parse(ok.body), {
+    ok: true,
+    goalBattery: 20_000,
+    announce: true,
+    texts: {},
+  })
   assert.equal(JSON.parse(readFileSync(join(dataDir, 'app.json'), 'utf8')).giftGoalBattery, 20_000)
+
+  const withText = await post({
+    goalBattery: 20_000,
+    announce: true,
+    texts: { 30: '还差一点', 100: '达成啦' },
+  })
+  assert.equal(withText.statusCode, 200)
+  assert.deepEqual(JSON.parse(withText.body).texts, { 30: '还差一点', 100: '达成啦' })
+  assert.deepEqual(
+    JSON.parse(readFileSync(join(dataDir, 'app.json'), 'utf8')).giftGoalTexts,
+    { 30: '还差一点', 100: '达成啦' },
+  )
+
+  for (const bad of [{ texts: { 50: '没有这一档' } }, { texts: { 30: 123 } }]) {
+    const r = await post({ goalBattery: 20_000, announce: true, ...bad })
+    assert.equal(r.statusCode, 400, `坏文案应当 400：${JSON.stringify(bad)}`)
+  }
 
   const cleared = await post({ goalBattery: 0, announce: true })
   assert.equal(cleared.statusCode, 200)

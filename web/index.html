@@ -90,8 +90,15 @@
           </div>
           <label class="room-notify-check" for="goal-announce">
             <input id="goal-announce" type="checkbox" />
-            到 50% / 100% 时在弹幕里播报
+            到 30% / 60% / 80% / 100% 时在弹幕里播报
           </label>
+          <div class="room-goal-texts">
+            <label for="goal-text-30">30% 文案<input id="goal-text-30" type="text" maxlength="80" autocomplete="off" placeholder="留空用默认" /></label>
+            <label for="goal-text-60">60% 文案<input id="goal-text-60" type="text" maxlength="80" autocomplete="off" placeholder="留空用默认" /></label>
+            <label for="goal-text-80">80% 文案<input id="goal-text-80" type="text" maxlength="80" autocomplete="off" placeholder="留空用默认" /></label>
+            <label for="goal-text-100">100% 文案<input id="goal-text-100" type="text" maxlength="80" autocomplete="off" placeholder="留空用默认" /></label>
+          </div>
+          <p class="room-goal-hint">自定义文案可用 {当前}、{目标}、{百分比} 三个占位符。</p>
         </div>
         <div class="dlg-actions">
           <button class="btn" type="button" id="room-cancel">取消</button>

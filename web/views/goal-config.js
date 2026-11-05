@@ -12,12 +12,20 @@
  * @param {{
  *   input: HTMLInputElement,
  *   announceBox: HTMLInputElement,
+ *   textBoxes?: Record<string, HTMLInputElement>,
  *   button: HTMLButtonElement,
- *   api: { goal: () => Promise<any>, saveGoal: (v:{goalBattery:number,announce:boolean}) => Promise<any> },
+ *   api: { goal: () => Promise<any>, saveGoal: (v:{goalBattery:number,announce:boolean,texts?:Record<string,string>}) => Promise<any> },
  *   toast?: (text:string, level?:string) => void,
  * }} opts
  */
-export function createGoalConfig({ input, announceBox, button, api, toast = () => {} }) {
+export function createGoalConfig({
+  input,
+  announceBox,
+  textBoxes = {},
+  button,
+  api,
+  toast = () => {},
+}) {
   let saving = false;
   /** 打开总览的序号：慢请求回来时不能覆盖用户刚保存的值 */
   let loadSeq = 0;
@@ -28,9 +36,21 @@ export function createGoalConfig({ input, announceBox, button, api, toast = () =
     return Number.isInteger(v) ? String(v) : v.toFixed(1);
   }
 
+  function collectTexts() {
+    const out = {};
+    for (const [key, box] of Object.entries(textBoxes ?? {})) {
+      const text = String(box?.value ?? '').trim();
+      if (text) out[key] = text;
+    }
+    return out;
+  }
+
   function applyServer(r) {
     input.value = yuanOf(r?.goalBattery);
     announceBox.checked = Boolean(r?.announce);
+    for (const [key, box] of Object.entries(textBoxes ?? {})) {
+      if (box) box.value = String(r?.texts?.[key] ?? '');
+    }
   }
 
   async function load() {
@@ -64,6 +84,7 @@ export function createGoalConfig({ input, announceBox, button, api, toast = () =
       const r = await api.saveGoal({
         goalBattery: Math.round(yuan * 10),
         announce: Boolean(announceBox.checked),
+        texts: collectTexts(),
       });
       if (seq !== loadSeq) return;
       applyServer(r);
@@ -71,7 +92,7 @@ export function createGoalConfig({ input, announceBox, button, api, toast = () =
       if (!goal) {
         toast('已关闭礼物目标', 'warn');
       } else if (r?.announce) {
-        toast(`已设定礼物目标 ¥${yuanOf(goal)}，过半/达成时播报`, 'info');
+        toast(`已设定礼物目标 ¥${yuanOf(goal)}，30/60/80/100% 过线时播报`, 'info');
       } else {
         toast(`已设定礼物目标 ¥${yuanOf(goal)}（不播报）`, 'info');
       }
@@ -88,13 +109,17 @@ export function createGoalConfig({ input, announceBox, button, api, toast = () =
     save().catch(() => {});
   });
 
-  // 这个输入框在 <form method="dialog"> 里：不拦 Enter 会直接提交"打开这间"，
-  // 目标还没保存就被表单带走了。
-  input.addEventListener('keydown', (e) => {
+  // 这些输入框在 <form method="dialog"> 里：不拦 Enter 会直接提交"打开这间"，
+  // 目标和文案还没保存就被表单带走了。
+  function onEnter(e) {
     if (e.key !== 'Enter') return;
     e.preventDefault();
     save().catch(() => {});
-  });
+  }
+  input.addEventListener('keydown', onEnter);
+  for (const box of Object.values(textBoxes ?? {})) {
+    if (box) box.addEventListener('keydown', onEnter);
+  }
 
   return { load, save };
 }

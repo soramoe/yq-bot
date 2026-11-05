@@ -59,6 +59,10 @@ const dom = {
   goalInput: $('#goal-input'),
   goalSave: $('#goal-save'),
   goalAnnounce: $('#goal-announce'),
+  goalText30: $('#goal-text-30'),
+  goalText60: $('#goal-text-60'),
+  goalText80: $('#goal-text-80'),
+  goalText100: $('#goal-text-100'),
   dlgPlugins: $('#dlg-plugins'),
   plgTabs: $('#plg-tabs'),
   plgBody: $('#plg-body'),
@@ -106,6 +110,12 @@ const notifyConfig = createNotifyConfig({
 const goalConfig = createGoalConfig({
   input: dom.goalInput,
   announceBox: dom.goalAnnounce,
+  textBoxes: {
+    30: dom.goalText30,
+    60: dom.goalText60,
+    80: dom.goalText80,
+    100: dom.goalText100,
+  },
   button: dom.goalSave,
   api,
   toast,

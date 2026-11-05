@@ -1895,48 +1895,70 @@ test('SC 待读：按钮、弹窗和 api 必须真的接到 app.js', () => {
 
 /* ══════════════════ 本场礼物目标 ══════════════════ */
 
-async function mountGoal({ goalBattery = 0, announce = false, fail = '' } = {}) {
+async function mountGoal({ goalBattery = 0, announce = false, texts = {}, fail = '' } = {}) {
   const { createGoalConfig } = await import('../../web/views/goal-config.js')
   const input = new FakeNode('input')
   const announceBox = new FakeNode('input')
+  const textBoxes = {
+    30: new FakeNode('input'),
+    60: new FakeNode('input'),
+    80: new FakeNode('input'),
+    100: new FakeNode('input'),
+  }
   const button = new FakeNode('button')
   const saved = []
   const toasts = []
   const api = {
-    goal: async () => ({ ok: true, goalBattery, announce }),
+    goal: async () => ({ ok: true, goalBattery, announce, texts }),
     saveGoal: async (v) => {
       if (fail) throw new Error(fail)
       saved.push(v)
       // 和服务端一样：目标清零时播报开关也要收掉
-      return { ok: true, goalBattery: v.goalBattery, announce: v.goalBattery ? v.announce : false }
+      return {
+        ok: true,
+        goalBattery: v.goalBattery,
+        announce: v.goalBattery ? v.announce : false,
+        texts: v.texts ?? {},
+      }
     },
   }
   const cfg = createGoalConfig({
     input,
     announceBox,
+    textBoxes,
     button,
     api,
     toast: (text, level) => toasts.push({ text, level }),
   })
-  return { cfg, input, announceBox, button, saved, toasts }
+  return { cfg, input, announceBox, textBoxes, button, saved, toasts }
 }
 
-test('礼物目标：打开时把电池回填成元，勾选状态跟着回填', async () => {
-  const { cfg, input, announceBox } = await mountGoal({ goalBattery: 20_000, announce: true })
+test('礼物目标：打开时把电池回填成元，勾选与四档文案跟着回填', async () => {
+  const { cfg, input, announceBox, textBoxes } = await mountGoal({
+    goalBattery: 20_000,
+    announce: true,
+    texts: { 30: '还差一点', 100: '达成啦' },
+  })
   await cfg.load()
   assert.equal(input.value, '2000', '输入框单位是元，不能把 20000 电池直接填进去')
   assert.equal(announceBox.checked, true)
+  assert.equal(textBoxes[30].value, '还差一点')
+  assert.equal(textBoxes[100].value, '达成啦')
+  assert.equal(textBoxes[60].value, '')
 })
 
-test('礼物目标：保存把元换算成电池，播报开关一起发', async () => {
-  const { cfg, input, announceBox, button, toasts, saved } = await mountGoal()
+test('礼物目标：保存把元换算成电池，播报开关与文案一起发', async () => {
+  const { cfg, input, announceBox, textBoxes, button, toasts, saved } = await mountGoal()
   input.value = '1000'
   announceBox.checked = true
+  textBoxes[60].value = '  老板大气  '
   await cfg.save()
 
-  assert.deepEqual(saved, [{ goalBattery: 10_000, announce: true }])
+  assert.deepEqual(saved, [
+    { goalBattery: 10_000, announce: true, texts: { 60: '老板大气' } },
+  ])
   assert.equal(toasts.at(-1).level, 'info')
-  assert.match(toasts.at(-1).text, /过半\/达成时播报/)
+  assert.match(toasts.at(-1).text, /30\/60\/80\/100% 过线时播报/)
   assert.equal(button.disabled, false)
 })
 
@@ -1960,7 +1982,7 @@ test('礼物目标：保存 0 时强制关播报，不留下假开关', async ()
   announceBox.checked = true
   await cfg.save()
 
-  assert.deepEqual(saved, [{ goalBattery: 0, announce: true }], '勾选状态照发，服务端会收掉')
+  assert.deepEqual(saved, [{ goalBattery: 0, announce: true, texts: {} }], '勾选状态照发，服务端会收掉')
   assert.equal(announceBox.checked, false, '回填以服务端返回为准')
   assert.match(toasts.at(-1).text, /已关闭礼物目标/)
 })
@@ -1984,7 +2006,7 @@ test('礼物目标：输入框回车是保存，不提交房间表单', async ()
   await new Promise((r) => setImmediate(r))
 
   assert.equal(prevented, true)
-  assert.deepEqual(saved, [{ goalBattery: 5_000, announce: false }])
+  assert.deepEqual(saved, [{ goalBattery: 5_000, announce: false, texts: {} }])
 })
 
 test('礼物目标：页面控件必须真的接到 app.js', () => {
@@ -1992,12 +2014,22 @@ test('礼物目标：页面控件必须真的接到 app.js', () => {
   const app = readFileSync(join(process.cwd(), 'web/app.js'), 'utf8')
   const apiSrc = readFileSync(join(process.cwd(), 'web/core/api.js'), 'utf8')
 
-  for (const id of ['goal-input', 'goal-save', 'goal-announce']) {
+  for (const id of [
+    'goal-input',
+    'goal-save',
+    'goal-announce',
+    'goal-text-30',
+    'goal-text-60',
+    'goal-text-80',
+    'goal-text-100',
+  ]) {
     assert.ok(html.includes(`id="${id}"`), `index.html 里没有 #${id}`)
   }
   assert.match(app, /createGoalConfig\s*\(/, 'app.js 没有创建礼物目标设置')
   assert.match(app, /goalInput:\s*\$\('#goal-input'\)/)
   assert.match(app, /goalAnnounce:\s*\$\('#goal-announce'\)/)
+  assert.match(app, /goalText30:\s*\$\('#goal-text-30'\)/)
+  assert.match(app, /textBoxes:\s*\{/, 'app.js 没把四档文案框传给设置模块')
   assert.match(app, /goalConfig\.load\(\)/, '打开总览时要回填目标')
   assert.match(apiSrc, /\/api\/goal/, 'api.js 没有礼物目标接口')
 })

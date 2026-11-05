@@ -655,6 +655,7 @@ export function buildRoutes(app) {
       ok: true,
       goalBattery: app.giftGoalBattery ?? 0,
       announce: app.giftGoalAnnounce === true,
+      texts: app.giftGoalTexts ?? {},
     });
   });
 
@@ -673,10 +674,20 @@ export function buildRoutes(app) {
       );
       return;
     }
-    const saved = app.setGiftGoal({
-      goalBattery: body.goalBattery,
-      announce: typeof body.announce === 'boolean' ? body.announce : undefined,
-    });
+    let saved;
+    try {
+      saved = app.setGiftGoal({
+        goalBattery: body.goalBattery,
+        announce: typeof body.announce === 'boolean' ? body.announce : undefined,
+        texts: body.texts === undefined ? undefined : body.texts,
+      });
+    } catch (err) {
+      if (err?.status) {
+        sendError(res, err.status, err.code ?? 'bad_request', err.message);
+        return;
+      }
+      throw err;
+    }
     sendJson(res, { ok: true, ...saved });
   });
 

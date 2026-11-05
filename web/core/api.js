@@ -174,8 +174,8 @@ export const api = {
   markScRead: (ids) => request('/api/sc/read', { method: 'POST', body: { ids } }),
   /** 本场礼物目标：电池为单位，0 = 关闭 */
   goal: () => request('/api/goal'),
-  saveGoal: ({ goalBattery, announce }) =>
-    request('/api/goal', { method: 'POST', body: { goalBattery, announce } }),
+  saveGoal: ({ goalBattery, announce, texts }) =>
+    request('/api/goal', { method: 'POST', body: { goalBattery, announce, texts } }),
   savePluginConfig: (id, patch) =>
     request(`/api/plugins/${encodeURIComponent(id)}/config`, { method: 'POST', body: patch }),
   resetPluginConfig: (id) =>

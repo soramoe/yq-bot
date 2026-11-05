@@ -21,7 +21,12 @@ import { UpdateChecker } from './core/update.mjs';
 import { buildDiagnostic } from './core/diagnostic.mjs';
 import { maskWebhook, notifyText, reportText, sendWebhook } from './core/notify.mjs';
 import { buildScQueue, MAX_READ_IDS } from './core/sc-queue.mjs';
-import { MAX_GOAL_BATTERY, goalMilestone, goalText } from './core/goal.mjs';
+import {
+  GOAL_TIERS,
+  MAX_GOAL_BATTERY,
+  goalMilestone,
+  goalText,
+} from './core/goal.mjs';
 import {
   MAX_BIG_SPEND_BATTERY,
   PATRON_RETURN_DAYS,
@@ -148,7 +153,15 @@ export class App {
     this.giftGoalBattery = 0;
 
     /**
-     * 到 50% / 100% 时是否在弹幕里播报。
+     * 四档里程碑的自定义文案：`{ "30": "还差一点…", "100": "…" }`。
+     *
+     * 只挂在 30 / 60 / 80 / 100 上；空串或没写的档用默认文案。
+     * 属这台机器（与目标金额同一份配置），换房间不用重填。
+     */
+    this.giftGoalTexts = {};
+
+    /**
+     * 过线时是否在弹幕里播报。
      *
      * 默认开：设了目标却完全没声，观众不知道进度走到哪了。
      * 不想说话的人可以在面板里关掉，页内提示与挂件进度条仍然在。
@@ -307,6 +320,18 @@ export class App {
     if (typeof cfg.giftGoalAnnounce === 'boolean') this.giftGoalAnnounce = cfg.giftGoalAnnounce;
     // 目标为 0 时没有"过线"可播报，开关跟着关掉，避免留下一个永远不生效的 true
     if (!this.giftGoalBattery) this.giftGoalAnnounce = false;
+
+    // 每档的自定义文案：只认 30/60/80/100 四个键，值必须是字符串；写坏的单条忽略
+    if (cfg.giftGoalTexts && typeof cfg.giftGoalTexts === 'object' && !Array.isArray(cfg.giftGoalTexts)) {
+      const texts = {};
+      for (const pct of GOAL_TIERS) {
+        const raw = cfg.giftGoalTexts[String(pct)];
+        if (typeof raw !== 'string') continue;
+        const text = raw.trim().slice(0, 80);
+        if (text) texts[String(pct)] = text;
+      }
+      this.giftGoalTexts = texts;
+    }
 
     // 回访提醒门槛：0..MAX 的整数，写坏了就当没配（0=关）
     if (cfg.patronReturnBattery !== undefined) {
@@ -562,6 +587,7 @@ export class App {
         patronReturnBattery: this.patronReturnBattery,
         giftGoalBattery: this.giftGoalBattery,
         giftGoalAnnounce: this.giftGoalAnnounce,
+        giftGoalTexts: this.giftGoalTexts,
       },
       null,
       2,
@@ -1431,7 +1457,7 @@ export class App {
     // 极端长跑也不让这个 Set 无限涨；清掉后最坏是同一场再喊一次
     if (this._goalSaid.size > 500) this._goalSaid.clear();
 
-    const text = goalText(milestone, after, goal);
+    const text = goalText(milestone, after, goal, this.giftGoalTexts?.[String(milestone)] ?? '');
     this._emit({ type: 'notice', data: { level: 'info', text } });
     this.log.info(`[目标] ${text}`);
 
@@ -1773,7 +1799,7 @@ export class App {
    * 目标为 0 时强制关掉播报：否则广播开关看起来还亮着，
    * 但永远不会有"过线"发生，用户会以为功能坏了。
    */
-  setGiftGoal({ goalBattery, announce } = {}) {
+  setGiftGoal({ goalBattery, announce, texts } = {}) {
     const nextGoal = goalBattery === undefined ? this.giftGoalBattery : goalBattery;
     if (!Number.isInteger(nextGoal) || nextGoal < 0 || nextGoal > MAX_GOAL_BATTERY) {
       throw Object.assign(new Error('礼物目标要写成 0 或正整数（单位：电池，0 = 关闭）'), {
@@ -1788,19 +1814,54 @@ export class App {
       });
     }
 
+    let nextTexts = this.giftGoalTexts;
+    if (texts !== undefined) {
+      if (!texts || typeof texts !== 'object' || Array.isArray(texts)) {
+        throw Object.assign(new Error('自定义文案要写成 { "30": "…", "100": "…" } 这样的对象'), {
+          status: 400,
+          code: 'bad_goal',
+        });
+      }
+      const clean = {};
+      for (const [key, value] of Object.entries(texts)) {
+        if (!GOAL_TIERS.includes(Number(key))) {
+          throw Object.assign(new Error('自定义文案只能挂在 30 / 60 / 80 / 100 这几档上'), {
+            status: 400,
+            code: 'bad_goal',
+          });
+        }
+        if (typeof value !== 'string') {
+          throw Object.assign(new Error('每一档的自定义文案都必须是字符串'), {
+            status: 400,
+            code: 'bad_goal',
+          });
+        }
+        const text = value.trim().slice(0, 80);
+        if (text) clean[String(Number(key))] = text;
+      }
+      nextTexts = clean;
+    }
+
     const beforeGoal = this.giftGoalBattery;
     const beforeAnnounce = this.giftGoalAnnounce;
+    const beforeTexts = this.giftGoalTexts;
     this.giftGoalBattery = nextGoal;
     this.giftGoalAnnounce = nextGoal ? (announce ?? beforeAnnounce) : false;
+    this.giftGoalTexts = nextTexts;
     if (!this._saveConfig()) {
       this.giftGoalBattery = beforeGoal;
       this.giftGoalAnnounce = beforeAnnounce;
+      this.giftGoalTexts = beforeTexts;
       throw Object.assign(new Error('保存礼物目标失败：写不进 data/app.json'), {
         status: 500,
         code: 'save_failed',
       });
     }
-    return { goalBattery: this.giftGoalBattery, announce: this.giftGoalAnnounce };
+    return {
+      goalBattery: this.giftGoalBattery,
+      announce: this.giftGoalAnnounce,
+      texts: this.giftGoalTexts,
+    };
   }
 
   _pushStats() {

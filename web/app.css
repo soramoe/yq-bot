@@ -921,6 +921,26 @@ dialog::backdrop {
   font-size: var(--fs-xs);
   color: var(--text-3);
 }
+/* 四档文案：两列小格子，别把房间弹窗撑成一张长表 */
+.room-goal-texts {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--s2);
+}
+.room-goal-texts label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.room-goal-texts input {
+  min-width: 0;
+  font-size: var(--fs-xs);
+}
+.room-goal-hint {
+  margin: 0;
+  font-size: var(--fs-xs);
+  color: var(--text-3);
+}
 .room-badge {
   font-size: var(--fs-xs);
   color: var(--accent);
