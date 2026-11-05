@@ -1,0 +1,72 @@
+name: release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install production dependencies
+        run: npm ci --omit=dev
+
+      - name: Check tag matches package.json
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          PKG="$(node -p "require('./package.json').version")"
+          if [ "$VERSION" != "$PKG" ]; then
+            echo "package.json 版本是 $PKG，tag 是 $VERSION —— 先把版本号改一致再发"
+            exit 1
+          fi
+
+      - name: Build update package
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          tar \
+            --exclude=data \
+            --exclude=.git \
+            --exclude=.github \
+            --exclude='*.tar.gz' \
+            -czf "yuyue3-${VERSION}.tar.gz" .
+          SHA="$(sha256sum "yuyue3-${VERSION}.tar.gz" | cut -d' ' -f1)"
+          SIZE="$(stat -c%s "yuyue3-${VERSION}.tar.gz")"
+          export VERSION SHA SIZE
+          node - <<'NODE'
+          const fs = require('fs');
+          const { VERSION, SHA, SIZE } = process.env;
+          const repo = process.env.GITHUB_REPOSITORY;
+          const tag = process.env.GITHUB_REF_NAME;
+          const manifest = {
+            version: VERSION,
+            notes: '见 GitHub Release 说明',
+            url: `https://github.com/${repo}/releases/tag/${tag}`,
+            download: `https://github.com/${repo}/releases/download/${tag}/yuyue3-${VERSION}.tar.gz`,
+            sha256: SHA,
+            size: Number(SIZE),
+            minVersion: '0.2.0',
+          };
+          fs.writeFileSync('latest.json', JSON.stringify(manifest, null, 2) + '\n');
+          NODE
+
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          gh release create "$GITHUB_REF_NAME" \
+            "yuyue3-${VERSION}.tar.gz" \
+            latest.json \
+            --title "渔月崽三代 v${VERSION}" \
+            --generate-notes

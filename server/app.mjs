@@ -9,15 +9,18 @@
  * 这样以后加第二个房间、加定时任务、加战报生成，都只动这一层。
  */
 
-import { copyFileSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
+import { spawn } from 'node:child_process';
+import { copyFileSync, existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { arch, platform, release } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 import { AuthStore } from './auth.mjs';
 import { RoomRunner } from './room-runner.mjs';
 import { reconcile, formatReport } from './core/reconcile.mjs';
 import { AccessGuard } from './core/access.mjs';
 import { UpdateChecker } from './core/update.mjs';
+import { downloadPackage, packageProblem, sha256Hex } from './core/update-apply.mjs';
 import { buildDiagnostic } from './core/diagnostic.mjs';
 import { maskWebhook, notifyText, reportText, sendWebhook } from './core/notify.mjs';
 import { pushTargetProblem, sendPush } from './core/push.mjs';
@@ -87,6 +90,8 @@ export class App {
    */
   constructor({ dataDir, roomId, dryRun = true, pluginsDir = null, log = SILENT_LOG, createRunner = null, createObs = null, fetchImpl = null }) {
     this.dataDir = dataDir;
+    /** 安装目录（data/ 的上一级）：更新脚本用它替换代码 */
+    this.root = resolve(dataDir, '..');
     this.pluginsDir = pluginsDir;
     this.log = log;
     this.createRunner = createRunner ?? ((args) => new RoomRunner(args));
@@ -131,6 +136,11 @@ export class App {
      * 和房间号、演练模式一样会随 app.json 落盘。
      */
     this.updateUrl = '';
+
+    /** 已下载待安装的更新包（只存在内存里；文件在 data/updates/） */
+    this._updateDownload = null;
+    /** 防止连点两次"重启并应用" */
+    this._updateApplying = false;
 
     /**
      * 开播 / 下播提醒的 webhook 地址。空 = 只在页面上弹 toast。
@@ -1454,6 +1464,128 @@ export class App {
 
   checkUpdate({ force = false } = {}) {
     return this.update.check({ force });
+  }
+
+  /**
+   * 下载更新包。
+   *
+   * 只认服务端上次检查拿到的清单——下载地址不能由前端传，
+   * 否则"检查更新"这个动作就形同虚设（页面可以被改成任意地址）。
+   */
+  async downloadUpdate() {
+    const snap = this.update.snapshot();
+    if (!snap?.hasUpdate) {
+      throw Object.assign(new Error('还没有检查到新版本，先点"检查更新"'), {
+        status: 409,
+        code: 'no_update',
+      });
+    }
+    if (!snap.download) {
+      throw Object.assign(new Error('更新源没有提供下载地址（download 字段）'), {
+        status: 400,
+        code: 'no_download',
+      });
+    }
+
+    const version = String(snap.latest ?? '').replace(/^v/i, '');
+    if (!/^\d+(\.\d+){0,3}$/.test(version)) {
+      throw Object.assign(new Error('更新源里的版本号不合法'), { status: 400, code: 'bad_version' });
+    }
+
+    const dir = join(this.dataDir, 'updates', version);
+    const file = join(dir, 'package.tar.gz');
+
+    // 已经下过、校验值也对得上：不重复下
+    if (this._updateDownload?.version === version && existsSync(file)) {
+      const cached = readFileSync(file);
+      if (!snap.sha256 || sha256Hex(cached) === snap.sha256) {
+        return { ...this._updateDownload, cached: true };
+      }
+    }
+
+    mkdirSync(dir, { recursive: true });
+    this.log.info(`[更新] 开始下载 v${version}…`);
+    const buffer = await downloadPackage({
+      url: snap.download,
+      fetchImpl: this.fetchImpl ?? globalThis.fetch,
+    });
+    const problem = packageProblem(buffer, { sha256: snap.sha256, size: snap.size });
+    if (problem) {
+      throw Object.assign(new Error(problem), { status: 502, code: 'bad_package' });
+    }
+
+    // 先写 .tmp 再原子替换：下到一半断电不会留下一个"看起来完整"的包
+    const tmp = `${file}.tmp`;
+    writeFileSync(tmp, buffer);
+    renameSync(tmp, file);
+
+    this._updateDownload = {
+      version,
+      file,
+      sha256: sha256Hex(buffer),
+      bytes: buffer.length,
+      downloadedAt: Date.now(),
+    };
+    this.log.info(`[更新] v${version} 已下载（${buffer.length} 字节）`);
+    return this._updateDownload;
+  }
+
+  /**
+   * 重启并应用已下载的更新。
+   *
+   * 真正的替换由独立进程完成（server/tools/update-apply.mjs）：
+   * 运行中的 node 在 Windows 上换不掉自己的文件。
+   */
+  applyUpdate({ port = 8900, force = false } = {}) {
+    const snap = this.update.snapshot();
+    const dl = this._updateDownload;
+    if (!snap?.hasUpdate || !dl || dl.version !== String(snap.latest).replace(/^v/i, '')) {
+      throw Object.assign(new Error('更新包还没下载好'), { status: 409, code: 'not_downloaded' });
+    }
+    if (this._updateApplying) {
+      throw Object.assign(new Error('更新已经在进行中'), { status: 409, code: 'update_busy' });
+    }
+    if (!force && this._activeRoom()?.projection?.state === 'live') {
+      throw Object.assign(new Error('直播中更新会重启服务，确实要现在做就再确认一次'), {
+        status: 409,
+        code: 'live_update',
+      });
+    }
+
+    const script = join(dirname(fileURLToPath(import.meta.url)), 'tools', 'update-apply.mjs');
+    if (!existsSync(script) || !existsSync(dl.file)) {
+      throw Object.assign(new Error('更新脚本或更新包不在了，请重新下载'), {
+        status: 409,
+        code: 'not_downloaded',
+      });
+    }
+    const child = spawn(
+      process.execPath,
+      [
+        script,
+        '--root', this.root,
+        '--archive', dl.file,
+        '--sha256', dl.sha256,
+        '--pid', String(process.pid),
+        '--port', String(Number(port) || 8900),
+        '--version', dl.version,
+      ],
+      { cwd: this.root, detached: true, stdio: 'ignore', windowsHide: true },
+    );
+    child.unref();
+
+    this._updateApplying = true;
+    this.log.info(`[更新] 已交给更新进程，准备重启到 v${dl.version}`);
+
+    // 让响应先发出去，再停服务。更新进程会等 pid 退出后才动文件。
+    const timer = setTimeout(() => {
+      this.stop()
+        .catch(() => {})
+        .finally(() => process.exit(0));
+    }, 800);
+    timer.unref?.();
+
+    return { version: dl.version, restarting: true };
   }
 
   /* ────────────────────────── 诊断包 ────────────────────────── */

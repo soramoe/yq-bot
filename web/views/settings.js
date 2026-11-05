@@ -244,7 +244,7 @@ export function createSettings({ dlg, tabs, body, closeBtn, toast }) {
           el('div', { class: 'plg-label' }, {
             children: [el('span', { class: 'plg-label-text', text: `当前版本 ${version}` })],
           }),
-          el('div', { class: 'plg-hint', text: '三代不自动覆盖代码：只提示有没有新版本，装不装由你决定' }),
+          el('div', { class: 'plg-hint', text: '下载并校验后才会重启替换；不后台静默安装，直播中会再确认一次' }),
         ],
       }),
     );
@@ -255,18 +255,39 @@ export function createSettings({ dlg, tabs, body, closeBtn, toast }) {
     });
     const saveUrlBtn = el('button', { class: 'btn small', attrs: { type: 'button' }, text: '保存地址' });
     const checkBtn = el('button', { class: 'btn primary small', attrs: { type: 'button' }, text: '检查更新' });
+    const dlBtn = el('button', { class: 'btn small', attrs: { type: 'button' }, text: '下载更新包' });
+    const applyBtn = el('button', { class: 'btn primary small', attrs: { type: 'button' }, text: '重启并应用' });
+    dlBtn.style.display = 'none';
+    applyBtn.style.display = 'none';
     const updNote = el('div', { class: 'plg-hint', text: describeUpdate(snapshot) });
+
+    let latestVersion = '';
+
+    const offerUpdate = (r) => {
+      const can = Boolean(r?.hasUpdate && r?.download);
+      if (!can) {
+        dlBtn.style.display = 'none';
+        applyBtn.style.display = 'none';
+        return;
+      }
+      latestVersion = String(r.latest ?? '');
+      dlBtn.style.display = '';
+      dlBtn.textContent = '下载更新包';
+      applyBtn.style.display = 'none';
+    };
+
+    offerUpdate(snapshot);
 
     nodes.push(
       el('div', { class: 'plg-field' }, {
         children: [
           el('div', { class: 'plg-label', children: [el('span', { class: 'plg-label-text', text: '更新源' })] }),
           urlInput,
-          el('div', { class: 'side-actions', children: [saveUrlBtn, checkBtn] }),
+          el('div', { class: 'side-actions', children: [saveUrlBtn, checkBtn, dlBtn, applyBtn] }),
           updNote,
           el('div', {
             class: 'plg-hint',
-            text: '更新源要返回 JSON：{ "version": "0.3.0", "notes": "改了什么", "url": "下载页" }',
+            text: '更新源要返回 JSON：{ "version": "0.3.0", "download": "https://…/yuyue3-0.3.0.tar.gz", "sha256": "…", "size": 12345 }',
           }),
         ],
       }),
@@ -295,11 +316,61 @@ export function createSettings({ dlg, tabs, body, closeBtn, toast }) {
         const r = await api.checkUpdate({ force: true });
         updNote.textContent = describeUpdate(r);
         updNote.className = `plg-hint${r.hasUpdate ? ' is-new' : r.error ? ' is-error' : ''}`;
+        offerUpdate(r);
       } catch (err) {
         updNote.textContent = err.message;
         updNote.className = 'plg-hint is-error';
       } finally {
         checkBtn.disabled = false;
+      }
+    });
+
+    dlBtn.addEventListener('click', async () => {
+      if (dlBtn.disabled) return;
+      dlBtn.disabled = true;
+      updNote.textContent = '正在下载更新包…';
+      updNote.className = 'plg-hint';
+      try {
+        const r = await api.updateDownload();
+        const mb = (Number(r.bytes) / 1024 / 1024).toFixed(1);
+        updNote.textContent = `已下载 v${r.version}（${mb}MB），重启后生效`;
+        updNote.className = 'plg-hint is-new';
+        dlBtn.textContent = '重新下载';
+        applyBtn.style.display = '';
+        toast('更新包已下载', 'info');
+      } catch (err) {
+        updNote.textContent = `下载失败：${err.message}`;
+        updNote.className = 'plg-hint is-error';
+      } finally {
+        dlBtn.disabled = false;
+      }
+    });
+
+    applyBtn.addEventListener('click', async () => {
+      if (applyBtn.disabled) return;
+      const live = st.brief?.state === 'live';
+      if (!window.confirm(`重启并更新到 v${latestVersion || '新版本'}？服务会停几秒，页面随后自动重连。`)) {
+        return;
+      }
+      applyBtn.disabled = true;
+      try {
+        try {
+          await api.updateApply({ force: false });
+        } catch (err) {
+          if (err?.code !== 'live_update') throw err;
+          if (!window.confirm('当前正在直播。更新会中断推流和弹幕处理，确定现在更新？')) {
+            applyBtn.disabled = false;
+            return;
+          }
+          await api.updateApply({ force: true });
+        }
+        updNote.textContent = '正在重启并应用更新…';
+        updNote.className = 'plg-hint is-new';
+        toast(live ? '更新中，直播会被短暂中断' : '正在重启更新…', live ? 'warn' : 'info');
+      } catch (err) {
+        updNote.textContent = `更新失败：${err.message}`;
+        updNote.className = 'plg-hint is-error';
+        applyBtn.disabled = false;
       }
     });
 

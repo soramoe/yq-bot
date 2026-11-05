@@ -219,6 +219,9 @@ export const api = {
   setUpdateUrl: (url) => request('/api/update/url', { method: 'POST', body: { url } }),
   checkUpdate: ({ force = false } = {}) =>
     request('/api/update/check', { method: 'POST', body: { force }, timeout: 30000 }),
+  updateDownload: () => request('/api/update/download', { method: 'POST', body: {}, timeout: 180000 }),
+  updateApply: ({ force = false } = {}) =>
+    request('/api/update/apply', { method: 'POST', body: { confirm: true, force }, timeout: 15000 }),
 
   /**
    * 诊断包。

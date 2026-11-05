@@ -65,7 +65,13 @@ export function compareVersion(a, b) {
 
 /**
  * 校验更新源返回的 JSON。
- * @returns {{version:string, notes:string, url:string}|null}
+ *
+ * v1 只有 version/notes/url（下载页），只够"提示"。
+ * v2 增加一键更新需要的字段：download（包地址）、sha256、size、minVersion。
+ * 老清单照样能解析，缺的字段给空值 —— 用户不必为了升级先把源改掉。
+ *
+ * @returns {{version:string, notes:string, url:string, download:string,
+ *   sha256:string, size:number, minVersion:string}|null}
  */
 export function parseManifest(data) {
   if (!data || typeof data !== 'object') return null;
@@ -73,10 +79,20 @@ export function parseManifest(data) {
   // 只认 "数字.数字..." 这种形状：一个乱七八糟的 version 会让
   // "有新版本吗"这个判断变成随机的
   if (!/^\d+(\.\d+){0,3}$/.test(version.replace(/^v/i, ''))) return null;
+  const sha256 = String(data.sha256 ?? '').trim().toLowerCase();
+  const size = Number(data.size);
   return {
     version,
     notes: String(data.notes ?? '').slice(0, 2000),
     url: String(data.url ?? '').slice(0, 500),
+    download: String(data.download ?? '').slice(0, 500),
+    // 校验值只认 64 位十六进制；写错的宁可当"没提供"，
+    // 也不要拿它去比对一个永远不相等的结果。
+    sha256: /^[a-f0-9]{64}$/.test(sha256) ? sha256 : '',
+    size: Number.isInteger(size) && size > 0 && size <= 100 * 1024 * 1024 ? size : 0,
+    minVersion: /^\d+(\.\d+){0,3}$/.test(String(data.minVersion ?? '').trim().replace(/^v/i, ''))
+      ? String(data.minVersion).trim()
+      : '',
   };
 }
 
@@ -208,6 +224,10 @@ export class UpdateChecker {
       hasUpdate: compareVersion(manifest.version, this.current) > 0,
       notes: manifest.notes,
       url: manifest.url,
+      download: manifest.download,
+      sha256: manifest.sha256,
+      size: manifest.size,
+      minVersion: manifest.minVersion,
       source: url,
       checkedAt,
     };

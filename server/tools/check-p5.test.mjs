@@ -452,13 +452,41 @@ test('更新：同时点两次只发一次（并发合并，不是排队）', as
 });
 
 test('更新：manifest 解析只认数字版本', () => {
-  assert.deepEqual(parseManifest({ version: '1.2.3', notes: 'x' }), { version: '1.2.3', notes: 'x', url: '' });
+  assert.deepEqual(parseManifest({ version: '1.2.3', notes: 'x' }), {
+    version: '1.2.3',
+    notes: 'x',
+    url: '',
+    download: '',
+    sha256: '',
+    size: 0,
+    minVersion: '',
+  });
   assert.equal(parseManifest({ version: 'v1.2.3' }).version, 'v1.2.3');
   assert.equal(parseManifest({ version: '1.2.3-beta.1' }), null);
   assert.equal(parseManifest({ version: '' }), null);
   assert.equal(parseManifest(null), null);
   // notes 有长度上限，防止一个 10MB 的说明把界面撑爆
   assert.equal(parseManifest({ version: '1.0.0', notes: 'x'.repeat(5000) }).notes.length, 2000);
+});
+
+test('更新：manifest v2 的下载字段，写错的校验值当没提供', () => {
+  const sha = 'a'.repeat(64);
+  const m = parseManifest({
+    version: '0.3.0',
+    download: 'https://example.com/yuyue3-0.3.0.tar.gz',
+    sha256: sha.toUpperCase(),
+    size: 12345,
+    minVersion: '0.2.0',
+  });
+  assert.equal(m.download, 'https://example.com/yuyue3-0.3.0.tar.gz');
+  assert.equal(m.sha256, sha);
+  assert.equal(m.size, 12345);
+  assert.equal(m.minVersion, '0.2.0');
+
+  assert.equal(parseManifest({ version: '0.3.0', sha256: 'nope' }).sha256, '');
+  assert.equal(parseManifest({ version: '0.3.0', size: -1 }).size, 0);
+  assert.equal(parseManifest({ version: '0.3.0', size: 1.5 }).size, 0);
+  assert.equal(parseManifest({ version: '0.3.0', minVersion: 'latest' }).minVersion, '');
 });
 
 /* ══════════════════════ 诊断包 ══════════════════════ */

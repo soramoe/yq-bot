@@ -458,6 +458,34 @@ export function buildRoutes(app) {
     }
   });
 
+  r.post('/api/update/download', async ({ res }) => {
+    try {
+      const result = await app.downloadUpdate();
+      sendJson(res, { ok: true, ...result });
+    } catch (err) {
+      sendError(
+        res,
+        err?.status ?? 500,
+        err?.code ?? 'download_failed',
+        err?.message ?? '下载更新包失败',
+      );
+    }
+  });
+
+  r.post('/api/update/apply', async ({ req, res }) => {
+    const body = (await readJson(req)) ?? {};
+    if (body?.confirm !== true) {
+      return sendError(res, 400, 'need_confirm', '重启更新需要明确确认：{ "confirm": true }');
+    }
+    try {
+      const port = Number(req?.socket?.localPort) || 8900;
+      const result = app.applyUpdate({ port, force: body?.force === true });
+      sendJson(res, { ok: true, ...result });
+    } catch (err) {
+      sendError(res, err?.status ?? 500, err?.code ?? 'update_failed', err?.message ?? '更新失败');
+    }
+  });
+
   /* ---------------- 诊断包 ---------------- */
 
   /**
