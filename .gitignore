@@ -10,3 +10,7 @@ logs/
 
 # 本机代理地址，换台机器就不同
 scripts/proxy.txt
+
+# 授权私钥：只留在本机 ~/.yuqing，永不进仓库
+*.pem
+*.key

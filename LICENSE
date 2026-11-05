@@ -1,0 +1,139 @@
+YUQING SOURCE-AVAILABLE LICENSE 1.0
+Copyright (c) 2025-2026 Yuqing (渔情) and contributors. All rights reserved.
+
+This license applies to the software in this repository (the "Software"),
+except for third-party components identified in Section 6.
+
+1. DEFINITIONS
+
+"Licensor" means the copyright holder of the Software.
+
+"You" means the individual or legal entity exercising rights under this
+License.
+
+"Evaluation" means installing, running, and testing the Software for a
+period of no more than seven (7) consecutive days, for the purpose of
+deciding whether to obtain a License Key. Evaluation does not include any
+public live broadcast or other production use.
+
+"Production Use" means operating the Software in connection with a live
+broadcast, a public-facing real-time service, or any other use that is not
+Evaluation, whether or not the use generates revenue.
+
+"License Key" means a license file issued by the Licensor and signed with
+the Licensor's private key, containing the permissions and limits of the
+license.
+
+2. GRANT
+
+Subject to the terms of this License, the Licensor grants You a limited,
+non-exclusive, non-transferable, revocable license to:
+
+(a) view, copy, and modify the Software for Evaluation and for internal
+development and testing;
+
+(b) make a reasonable number of backup copies;
+
+(c) use the Software for Production Use only while You hold a valid
+License Key that covers that use.
+
+No other rights are granted. In particular, no right to distribute the
+Software or any modified version of it is granted.
+
+3. CONDITIONS
+
+You must:
+
+(a) keep all copyright, license, and attribution notices intact in the
+source code and in any permitted copies;
+
+(b) not sell, sublicense, rent, lease, lend, publish, upload, or otherwise
+distribute the Software, any modified version, or any License Key to any
+third party, whether for free or for payment;
+
+(c) not provide the Software as a hosted service to third parties;
+
+(d) not remove, disable, or circumvent any license check, machine binding,
+or other technical measure in the Software;
+
+(e) not use the names "渔情", "Yuqing", "渔情B站直播助手机器人", the product
+logos, or any confusingly similar mark without written permission, except
+for truthful, descriptive references;
+
+(f) not misrepresent a modified version as an official release of the
+Software;
+
+(g) comply with applicable laws, platform rules, and the terms of any live
+streaming platform You use with the Software.
+
+4. LICENSE KEYS
+
+(a) A License Key is bound to the machine code and streaming account
+specified at issuance. It is not transferable except under a replacement
+policy published by the Licensor.
+
+(b) A License Key may be revoked if it was obtained fraudulently, if payment
+is reversed, or if You materially breach this License.
+
+(c) The Licensor may offer different editions with different features,
+room limits, or update periods. Those limits are stated in the License Key
+and in the purchase terms.
+
+(d) The Licensor may change the terms for future versions of the Software.
+A License Key remains governed by the terms under which it was issued for
+the period stated in that key.
+
+5. CONTRIBUTIONS
+
+If You submit a contribution to the Software, You grant the Licensor a
+perpetual, worldwide, non-exclusive, royalty-free, irrevocable license to
+use, reproduce, modify, and distribute that contribution as part of the
+Software or under other terms.
+
+6. THIRD-PARTY COMPONENTS
+
+Third-party components remain under their own licenses. The only runtime
+dependency is the "ws" package, licensed under the MIT License. Nothing in
+this License limits rights granted to You under those licenses.
+
+7. NO WARRANTY
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE, AND NON-INFRINGEMENT. THE LICENSOR DOES
+NOT WARRANT THAT THE SOFTWARE WILL BE UNINTERRUPTED, ERROR-FREE, OR
+COMPLIANT WITH ANY PLATFORM'S RULES.
+
+8. LIMITATION OF LIABILITY
+
+TO THE MAXIMUM EXTENT PERMITTED BY LAW, THE LICENSOR SHALL NOT BE LIABLE FOR
+ANY INDIRECT, INCIDENTAL, SPECIAL, CONSEQUENTIAL, OR PUNITIVE DAMAGES, OR
+FOR ANY LOSS OF DATA, REVENUE, OR PROFITS, ARISING FROM OR RELATED TO THE
+SOFTWARE OR THIS LICENSE. THE LICENSOR'S TOTAL LIABILITY UNDER THIS LICENSE
+SHALL NOT EXCEED THE AMOUNT YOU PAID FOR THE LICENSE KEY GIVING RISE TO THE
+CLAIM, IF ANY.
+
+9. TERMINATION
+
+This License terminates automatically if You breach any of its terms. On
+termination, You must stop all use and delete all copies of the Software and
+License Keys, except that copies required by law may be retained. Sections
+3, 4, 6, 7, 8, 9, and 10 survive termination.
+
+10. GOVERNING LAW
+
+This License is governed by the laws of the People's Republic of China.
+Disputes shall be submitted to the competent court at the Licensor's
+domicile, unless mandatory law provides otherwise.
+
+11. CONTACT
+
+For commercial licenses, replacement, or other permissions, contact the
+Licensor through the project's release page or the BUG feedback group listed
+in the README.
+
+--------------------------------------------------------------------
+This is a source-available license, not an OSI-approved open source
+license. The source code is provided so users can inspect, audit, and
+modify it for their own permitted use. It is not provided for
+redistribution or resale.
