@@ -198,19 +198,22 @@ function arm(ctx, st) {
   stop(ctx, st);
   st.timer = setTimeout(() => {
     st.timer = null;
-    try {
-      tick(ctx, st);
-    } catch (err) {
-      // 定时器回调里抛出的异常没人接，会被 uncaughtException 接住，
-      // 而入口对未捕获异常的处理是关掉整个进程。一句招呼发不出去不该有这种代价。
-      ctx.log.error(`主动打招呼出错：${err.message}`);
-    }
+    // tick 现在是异步的（要查高能榜确认在线）。
+    // 下一轮必须**立刻**排上，不能等 tick 的 Promise 落定再排：
+    // 否则查榜慢的这 5 秒会被整段吞掉（测试里的假时钟也会只醒一次）。
+    // 重入交给 tick 开头的 st.inflight 挡。
+    Promise.resolve()
+      .then(() => tick(ctx, st))
+      .catch((err) => {
+        ctx.log.error(`主动打招呼出错：${err.message}`);
+      });
     arm(ctx, st);
   }, WAKE_MS);
   st.timer.unref?.();
 }
 
-function tick(ctx, st) {
+async function tick(ctx, st) {
+  if (st.inflight) return;
   const cfg = ctx.config ?? DEFAULTS;
   // 没走 onStart（测试里直接驱动）时也要能用
   if (!st.called) st.called = new Map();
@@ -269,8 +272,27 @@ function tick(ctx, st) {
   const { text: tpl, cursor } = nextGreeting(cfg.templates, st.cursor, cfg.shuffle === true);
   if (!tpl) return;
 
-  // 结构化 @ 时文案里绝不写 @名字：B站 会自己挂标签
-  const greeting = ctx.render(tpl, { 用户: picked.name });
+  // 发之前确认一次在线。高能榜命中才敢挂 @；没命中就发不带 @ 的文本，
+  // 名字写进句子里——否则 B站 会把 @ 吞成一个空位。
+  // 没有 presence 的宿主（老版本 / 沙盒 / 测试）返回 unknown：
+  // 保持旧行为（正文带名字 + 结构化 @），不能因为查不到就把人当离线。
+  const canCheckPresence = ctx.presence && typeof ctx.presence.has === 'function';
+  const online = canCheckPresence
+    ? Boolean(await ctx.presence.has(picked.uid).catch(() => false))
+    : null;
+
+  const withName = ctx.render(tpl, { 用户: picked.name });
+  const noName = ctx.render(tpl, { 用户: '' }).replace(/^[\s,，、:：]+/, '').trim();
+  // 确认在线：@ 标签自带名字，正文别再重复；确认离线：正文必须自己带名字。
+  const greeting =
+    online === true
+      ? noName || withName
+      : online === false
+        ? tpl.includes('{用户}')
+          ? withName
+          : `${picked.name}，${withName}`
+        : withName;
+
   const prepared = prepareText(greeting, { max: MAX_TEXT });
   if (prepared.truncated) {
     // 自动流程里没人能立刻改文案，抛错没意义；但也不能发半句话。
@@ -287,28 +309,26 @@ function tick(ctx, st) {
   st.cursor = cursor;
   st.inflight = true;
 
-  // priority 固定 0：主动招呼没有时效性，不该为它挤掉礼物答谢的等待槽位。
-  ctx
-    .say(prepared.text, {
+  try {
+    // priority 固定 0：主动招呼没有时效性，不该为它挤掉礼物答谢的等待槽位。
+    const r = await ctx.say(prepared.text, {
       reason: 'autocall',
-      reply: { uid: picked.uid, uname: picked.name },
+      reply: online === false ? null : { uid: picked.uid, uname: picked.name },
       priority: 0,
-    })
-    .then((r) => {
-      st.inflight = false;
-      if (r && r.ok) {
-        // 只有真发出去才记：演练也算一次（推进轮换），但状态只在内存，
-        // 重启即清空，不会污染真实观众簿。
-        st.called.set(picked.uid, Date.now());
-        st.sent++;
-      } else {
-        // 被限速/去重/没有闸门：不标记 = 候选保留，下一个间隔仍会挑他。
-        // 节奏照常清零（跳过这一轮），不去 5 秒后连着再撞一次限速。
-        ctx.log.debug?.(`本轮招呼未发出（${r?.skipped ?? 'unknown'}），候选保留`);
-      }
-    })
-    .catch((err) => {
-      st.inflight = false;
-      ctx.log.warn(`主动招呼请求异常：${err.message}`);
     });
+    if (r && r.ok) {
+      // 只有真发出去才记：演练也算一次（推进轮换），但状态只在内存，
+      // 重启即清空，不会污染真实观众簿。
+      st.called.set(picked.uid, Date.now());
+      st.sent++;
+    } else {
+      // 被限速/去重/没有闸门：不标记 = 候选保留，下一个间隔仍会挑他。
+      // 节奏照常清零（跳过这一轮），不去 5 秒后连着再撞一次限速。
+      ctx.log.debug?.(`本轮招呼未发出（${r?.skipped ?? 'unknown'}），候选保留`);
+    }
+  } catch (err) {
+    ctx.log.warn(`主动招呼请求异常：${err.message}`);
+  } finally {
+    st.inflight = false;
+  }
 }

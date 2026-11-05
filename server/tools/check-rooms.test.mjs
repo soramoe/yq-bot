@@ -1120,6 +1120,46 @@ test('运行体：解析房间号失败后还能再试，不能被记成"已启�
   assert.equal(calls, 2, '第二次 start 必须真的又试了一遍（而不是直接 return）')
 })
 
+test('运行体：高能榜 45 秒缓存，命中才返回在线', async () => {
+  const { RoomRunner } = await import('../room-runner.mjs')
+  const dir = mkdtempSync(join(tmpdir(), 'yy3-rank-'))
+  let calls = 0
+  const runner = new RoomRunner({
+    roomId: '100',
+    dataDir: dir,
+    pluginsDir: null,
+    fetchRank: async () => {
+      calls++
+      return { uids: new Set(['42']), onlineNum: 1 }
+    },
+  })
+
+  assert.equal(await runner.hasOnline('42'), true)
+  assert.equal(await runner.hasOnline('42'), true)
+  assert.equal(calls, 1, '45 秒内重复问不能重复打接口')
+  assert.equal(await runner.hasOnline('77'), false, '不在榜只代表无法确认，不能当「肯定在线」')
+  assert.equal(await runner.hasOnline('0'), false, '平台号不是观众')
+})
+
+test('运行体：高能榜失败时静默降级为「无法确认」，不拖垮招呼', async () => {
+  const { RoomRunner } = await import('../room-runner.mjs')
+  const dir = mkdtempSync(join(tmpdir(), 'yy3-rank-err-'))
+  let calls = 0
+  const runner = new RoomRunner({
+    roomId: '100',
+    dataDir: dir,
+    pluginsDir: null,
+    fetchRank: async () => {
+      calls++
+      throw new Error('接口 503')
+    },
+  })
+
+  assert.equal(await runner.hasOnline('42'), false)
+  assert.equal(await runner.hasOnline('42'), false)
+  assert.equal(calls, 1, '失败结果也要缓存，直播中不能每个候选都打一次接口')
+})
+
 test('房间：上一次启动失败，再打开一次会真的重试（不是原地返回）', async (t) => {
   const { app } = makeApp(t, { rooms: ['100'] })
   FakeRunner.failNext = 1

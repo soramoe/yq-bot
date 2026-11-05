@@ -26,6 +26,7 @@ import { SendGate } from './core/gate.mjs';
 import { PluginHost } from './core/plugin-host.mjs';
 import { LiveClient } from './bili/live-client.mjs';
 import { resolveRoomId, fetchRoomInfo } from './bili/room.mjs';
+import { fetchOnlineRank } from './bili/rank.mjs';
 import { sendDanmaku } from './bili/send.mjs';
 
 const SILENT_LOG = { debug() {}, info() {}, warn() {}, error() {} };
@@ -86,6 +87,8 @@ export class RoomRunner extends EventEmitter {
      * 自检不该为此真的联网。
      */
     fetchInfo = fetchRoomInfo,
+    /** 高能榜查询，和 fetchInfo 一样可注入，自检不联网 */
+    fetchRank = fetchOnlineRank,
   }) {
     super();
 
@@ -126,6 +129,14 @@ export class RoomRunner extends EventEmitter {
      * 主动招呼优先从这里挑人，@ 才挂得出来。
      */
     this._speakers = new Map();
+
+    /**
+     * 高能榜缓存：只用来**确认**某个人此刻在线，不是完整在线名单。
+     * 榜上只有消费靠前的人；没命中不能反推"已离开"。
+     */
+    this._onlineRank = { at: 0, uids: new Set() };
+    this._onlineRankPending = null;
+    this._fetchRank = fetchRank;
 
     this.pluginsDir = pluginsDir;
     this.pluginConfigs = pluginConfigs;
@@ -215,6 +226,7 @@ export class RoomRunner extends EventEmitter {
       enabled: this.pluginEnabled,
       roster: this.roster,
       speakers: { recent: (opts) => this.recentSpeakers(opts) },
+      presence: { has: (uid) => this.hasOnline(uid) },
     });
   }
 
@@ -513,6 +525,49 @@ export class RoomRunner extends EventEmitter {
     }
     out.sort((a, b) => b.lastSpokeAt - a.lastSpokeAt);
     return out.slice(0, cap);
+  }
+
+  /**
+   * 拉一页高能榜，缓存 45 秒。
+   *
+   * 失败也缓存一个空集合：直播里网络抖一下不该让每个候选都重新打一次接口。
+   * 空集合只影响"能不能确认在线"，不影响发不发言。
+   */
+  async _onlineUids() {
+    const now = Date.now();
+    if (now - this._onlineRank.at < 45_000) return this._onlineRank.uids;
+    if (this._onlineRankPending) return this._onlineRankPending;
+
+    this._onlineRankPending = (async () => {
+      try {
+        const r = await this._fetchRank({
+          roomId: this.realRoomId || this.inputRoomId,
+          ruid: this.client?.uid || 0,
+          cookie: this.cookie,
+        });
+        this._onlineRank = { at: Date.now(), uids: r?.uids instanceof Set ? r.uids : new Set() };
+      } catch (err) {
+        this._onlineRank = { at: Date.now(), uids: new Set() };
+        this.log.debug?.(`[${this.realRoomId || this.inputRoomId}] 高能榜查询失败：${err.message}`);
+      } finally {
+        this._onlineRankPending = null;
+      }
+      return this._onlineRank.uids;
+    })();
+    return this._onlineRankPending;
+  }
+
+  /**
+   * 这个人**能确认**在线吗？
+   *
+   * 只有高能榜命中才算确认（榜单是消费靠前的人，不是完整名单）。
+   * 返回 false 只代表"确认不了"，不代表"人走了"——调用方应降级成不带 @ 的文本。
+   */
+  async hasOnline(uid) {
+    const id = String(uid ?? '').trim();
+    if (!id || id === '0') return false;
+    const uids = await this._onlineUids();
+    return uids.has(id);
   }
 
   /**

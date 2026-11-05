@@ -56,6 +56,7 @@ function fakeCtx(config, opts = {}) {
       ? opts.roster
       : makeRoster(opts.entries ?? [['1001', '甲', 60_000], ['1002', '乙', 120_000]]),
     speakers: opts.speakers ?? null,
+    presence: opts.presence ?? null,
     log: { ...SILENT, warn: (m) => warns.push(String(m)) },
     render: (tpl, vars) =>
       String(tpl).replace(/\{([^{}]+)\}/g, (w, k) =>
@@ -88,10 +89,11 @@ function advance(t, ms, step = 5000) {
   }
 }
 
-/** 让 ctx.say(...).then(...) 的微任务跑完 */
+/** 让异步 tick 及其 ctx.say(...).then(...) 的微任务全部跑完 */
 async function flush() {
-  await Promise.resolve()
-  await Promise.resolve()
+  // tick 现在会 await presence / say，链路上不止两层微任务；
+  // 固定推进足够多轮，比数着 await 层数写更不容易随实现变化而挂。
+  for (let i = 0; i < 20; i++) await Promise.resolve()
 }
 
 /* ══════════════════ 纯逻辑：门禁与配置 ══════════════════ */
@@ -383,6 +385,54 @@ test('主动招呼：优先挑刚说过话的人，B站 才挂得出 @', async (
   await flush()
   assert.equal(ctx.said.length, 1)
   assert.equal(ctx.said[0].reply.uid, '2002', '刚说话的人一定还在房间，@ 才生效')
+})
+
+test('主动招呼：高能榜确认在线时，正文不重复名字、仍挂结构化 @', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] })
+  const ctx = fakeCtx(cfg({ minAgeSec: 0, templates: ['你好 {用户}'] }), {
+    entries: [['1001', '甲', 60_000]],
+    presence: { has: async () => true },
+  })
+  autocall.onStart(ctx)
+  t.after(() => autocall.onStop(ctx))
+
+  advance(t, 300_000)
+  await flush()
+  assert.equal(ctx.said.length, 1)
+  assert.equal(ctx.said[0].text, '你好', '@ 标签会显示名字，正文不再重复')
+  assert.deepEqual(ctx.said[0].reply, { uid: '1001', uname: '甲' })
+})
+
+test('主动招呼：高能榜没命中时，正文自己带名字、不传 reply', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] })
+  const ctx = fakeCtx(cfg({ minAgeSec: 0, templates: ['你好 {用户}'] }), {
+    entries: [['1001', '甲', 60_000]],
+    presence: { has: async () => false },
+  })
+  autocall.onStart(ctx)
+  t.after(() => autocall.onStop(ctx))
+
+  advance(t, 300_000)
+  await flush()
+  assert.equal(ctx.said.length, 1)
+  assert.equal(ctx.said[0].text, '你好 甲', '没确认在线就不能指望 B站 挂 @')
+  assert.equal(ctx.said[0].reply, null)
+})
+
+test('主动招呼：查在线失败按「无法确认」处理，降级成不带 @ 的文本', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] })
+  const ctx = fakeCtx(cfg({ minAgeSec: 0, templates: ['{用户}，来聊会儿'] }), {
+    entries: [['1001', '甲', 60_000]],
+    presence: { has: async () => { throw new Error('rank timeout') } },
+  })
+  autocall.onStart(ctx)
+  t.after(() => autocall.onStop(ctx))
+
+  advance(t, 300_000)
+  await flush()
+  assert.equal(ctx.said.length, 1)
+  assert.equal(ctx.said[0].text, '甲，来聊会儿')
+  assert.equal(ctx.said[0].reply, null)
 })
 
 test('主动招呼：文案超长时跳过这一轮，不发半句、不刷日志', async (t) => {
