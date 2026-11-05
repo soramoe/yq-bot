@@ -17,6 +17,7 @@ import { replay } from '../core/sandbox.mjs';
 import { MAX_BIG_SPEND_BATTERY, buildPatrons } from '../core/patrons.mjs';
 import { buildScQueue } from '../core/sc-queue.mjs';
 import { MAX_GOAL_BATTERY } from '../core/goal.mjs';
+import { sendPush } from '../core/push.mjs';
 
 /**
  * @param {import('../app.mjs').App} app
@@ -555,6 +556,53 @@ export function buildRoutes(app) {
       report: hasReport ? body.report : undefined,
     });
     sendJson(res, { ok: true, ...saved });
+  });
+
+  /* 手机推送配置。
+     target 同样是写凭据（Bark key / Server酱 key 拿到就能往手机发消息），
+     所以读配置也要访问口令。 */
+  r.get('/api/push', ({ req, res }) => {
+    if (app.access?.enabled && !app.access.verify(req?.headers?.['x-access-token'])) {
+      sendError(res, 401, 'locked_out', '需要访问口令（在侧栏「访问口令」里解锁）');
+      return;
+    }
+    sendJson(res, { ok: true, provider: app.pushProvider ?? '', target: app.pushTarget ?? '' });
+  });
+
+  r.post('/api/push', async ({ req, res }) => {
+    const body = await readJson(req);
+    if (typeof body?.provider !== 'string' || typeof body?.target !== 'string') {
+      sendError(res, 400, 'bad_request', '需要 { "provider": "bark|ntfy|serverchan", "target": "…" }；两个都空表示关闭');
+      return;
+    }
+    let saved;
+    try {
+      saved = app.setPushSettings({ provider: body.provider, target: body.target });
+    } catch (err) {
+      if (err?.status) {
+        sendError(res, err.status, err.code ?? 'bad_request', err.message);
+        return;
+      }
+      throw err;
+    }
+    sendJson(res, { ok: true, ...saved });
+  });
+
+  r.post('/api/push/test', async ({ res }) => {
+    if (!app.pushProvider || !app.pushTarget) {
+      sendError(res, 400, 'push_not_configured', '先在房间总览里填手机推送，再发测试');
+      return;
+    }
+    const result = await sendPush(app.pushProvider, app.pushTarget, '这是一条测试推送，收到就说明手机推送通了。', {
+      fetchImpl: app.fetchImpl,
+      title: '渔月崽三代 · 测试',
+    });
+    sendJson(res, {
+      ok: true,
+      sent: result.ok === true,
+      error: result.error ?? '',
+      status: result.status ?? 0,
+    });
   });
 
   /* 付费用户档案。

@@ -83,6 +83,23 @@
             下播后把本场战报发到同一个 webhook
           </label>
         </div>
+        <div class="room-push">
+          <label for="push-provider">手机推送（开播 / 下播 / 大额；战报不推手机）</label>
+          <div class="room-notify-row">
+            <select id="push-provider" class="room-push-select">
+              <option value="">关闭</option>
+              <option value="bark">Bark（iOS）</option>
+              <option value="ntfy">ntfy（全平台）</option>
+              <option value="serverchan">Server酱（微信）</option>
+            </select>
+            <input id="push-target" type="text" autocomplete="off" spellcheck="false" placeholder="key / topic / SendKey" />
+          </div>
+          <div class="room-notify-row">
+            <button class="btn" type="button" id="push-save">保存</button>
+            <button class="btn" type="button" id="push-test">发测试</button>
+          </div>
+          <p class="room-goal-hint" id="push-hint"></p>
+        </div>
         <div class="room-goal">
           <label for="goal-input">本场礼物目标（元，0 = 关闭；下播再开重新算）</label>
           <div class="room-notify-row">

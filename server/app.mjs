@@ -20,6 +20,7 @@ import { AccessGuard } from './core/access.mjs';
 import { UpdateChecker } from './core/update.mjs';
 import { buildDiagnostic } from './core/diagnostic.mjs';
 import { maskWebhook, notifyText, reportText, sendWebhook } from './core/notify.mjs';
+import { pushTargetProblem, sendPush } from './core/push.mjs';
 import { buildScQueue, MAX_READ_IDS } from './core/sc-queue.mjs';
 import {
   MAX_SONG_ITEMS,
@@ -142,6 +143,16 @@ export class App {
      * 所以这两项是一组的（`setNotifySettings` 会拒绝"只开战报不填地址"）。
      */
     this.notifyReport = false;
+
+    /**
+     * 手机推送：与 webhook 分开配，因为目标是手机而不是群。
+     *
+     * `pushProvider` 是 `bark` / `ntfy` / `serverchan` 之一，空 = 关闭；
+     * `pushTarget` 是推给谁（Bark key、ntfy topic 或 Server酱 SendKey）。
+     * 只用于开播 / 下播 / 大额这三类短消息，战报不推手机。
+     */
+    this.pushProvider = '';
+    this.pushTarget = '';
 
     /**
      * 单笔大额提醒的阈值（电池，0 = 关闭）。
@@ -301,6 +312,21 @@ export class App {
     if (typeof cfg.notifyReport === 'boolean') this.notifyReport = cfg.notifyReport;
     // 没有地址就没有"发到哪儿"：手工改配置改出的半套状态要收掉
     if (!this.notifyWebhook) this.notifyReport = false;
+
+    // 手机推送：渠道与目标成对出现；写坏就整组忽略，不拿半套配置去发
+    if (typeof cfg.pushProvider === 'string') {
+      const provider = cfg.pushProvider.trim();
+      const target = typeof cfg.pushTarget === 'string' ? cfg.pushTarget.trim() : '';
+      if (!provider && !target) {
+        this.pushProvider = '';
+        this.pushTarget = '';
+      } else if (pushTargetProblem(provider, target)) {
+        this.log.warn('[配置] data/app.json 里的手机推送配置无效，已忽略');
+      } else {
+        this.pushProvider = provider;
+        this.pushTarget = target;
+      }
+    }
 
     // 大额提醒阈值：只接受 0..MAX 的整数。写坏了就当没配（0=关），
     // 不能截断成半截数字 —— 那会变成"每笔都提醒"或"永远不提醒"，且没人看得出来
@@ -598,6 +624,8 @@ export class App {
         updateUrl: this.updateUrl,
         notifyWebhook: this.notifyWebhook,
         notifyReport: this.notifyReport,
+        pushProvider: this.pushProvider,
+        pushTarget: this.pushTarget,
         bigSpendBattery: this.bigSpendBattery,
         patronReturnBattery: this.patronReturnBattery,
         giftGoalBattery: this.giftGoalBattery,
@@ -1490,6 +1518,8 @@ export class App {
       data: { level: start ? 'success' : 'info', text },
     });
     this.log.info(`[提醒] ${text}`);
+    // 手机推送与 webhook 相互独立：没配群机器人，手机一样能收到
+    this._pushText(start ? '开播提醒' : '下播提醒', text);
 
     const webhook = this.notifyWebhook;
     if (!webhook) return;
@@ -1547,6 +1577,7 @@ export class App {
     const text = `【大额】${roomId ? `房间 ${roomId} · ` : ''}${body}`;
     this._emit({ type: 'notice', data: { level: 'warn', text } });
     this.log.info(`[大额] ${text}`);
+    this._pushText('大额提醒', text);
 
     const webhook = this.notifyWebhook;
     if (!webhook) return;
@@ -1752,6 +1783,76 @@ export class App {
    */
   setNotifyWebhook(url) {
     return this.setNotifySettings({ webhook: url }).webhook;
+  }
+
+  /**
+   * 设置手机推送。空 provider + 空 target = 关闭。
+   *
+   * @param {{provider?:string, target?:string}} [o]
+   * @returns {{provider:string, target:string}}
+   */
+  setPushSettings({ provider, target } = {}) {
+    const nextProvider = provider === undefined ? this.pushProvider : String(provider ?? '').trim();
+    const nextTarget = target === undefined ? this.pushTarget : String(target ?? '').trim();
+
+    if (!nextProvider && !nextTarget) {
+      const beforeProvider = this.pushProvider;
+      const beforeTarget = this.pushTarget;
+      this.pushProvider = '';
+      this.pushTarget = '';
+      if (!this._saveConfig()) {
+        this.pushProvider = beforeProvider;
+        this.pushTarget = beforeTarget;
+        throw Object.assign(new Error('保存手机推送设置失败：写不进 data/app.json'), {
+          status: 500,
+          code: 'save_failed',
+        });
+      }
+      return { provider: '', target: '' };
+    }
+
+    const problem = pushTargetProblem(nextProvider, nextTarget);
+    if (problem) {
+      throw Object.assign(new Error(problem), { status: 400, code: 'bad_push' });
+    }
+
+    const beforeProvider = this.pushProvider;
+    const beforeTarget = this.pushTarget;
+    this.pushProvider = nextProvider;
+    this.pushTarget = nextTarget;
+    if (!this._saveConfig()) {
+      this.pushProvider = beforeProvider;
+      this.pushTarget = beforeTarget;
+      throw Object.assign(new Error('保存手机推送设置失败：写不进 data/app.json'), {
+        status: 500,
+        code: 'save_failed',
+      });
+    }
+    return { provider: this.pushProvider, target: this.pushTarget };
+  }
+
+  /**
+   * 往手机发一条短消息（尽力而为）。失败只提示，不打断事件处理。
+   *
+   * @param {string} title
+   * @param {string} text
+   */
+  _pushText(title, text) {
+    if (!this.pushProvider || !this.pushTarget) return;
+    sendPush(this.pushProvider, this.pushTarget, text, {
+      fetchImpl: this.fetchImpl,
+      title,
+    })
+      .then((res) => {
+        if (res?.ok) return;
+        const why = res?.error || `HTTP ${res?.status ?? '?'}`;
+        this.log.warn(`[推送] 手机推送没发出去（${why}）`);
+        this._emit({
+          type: 'notice',
+          data: { level: 'warn', text: `手机推送没发出去：${why}` },
+        });
+      })
+      .catch(() => {});
   }
 
   /**

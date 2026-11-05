@@ -179,6 +179,10 @@ export const api = {
   goal: () => request('/api/goal'),
   saveGoal: ({ goalBattery, announce, texts }) =>
     request('/api/goal', { method: 'POST', body: { goalBattery, announce, texts } }),
+  /** 手机推送：target 是 key / topic / SendKey，属于凭据 */
+  push: () => request('/api/push'),
+  savePush: (provider, target) => request('/api/push', { method: 'POST', body: { provider, target } }),
+  testPush: () => request('/api/push/test', { method: 'POST', body: {} }),
   savePluginConfig: (id, patch) =>
     request(`/api/plugins/${encodeURIComponent(id)}/config`, { method: 'POST', body: patch }),
   resetPluginConfig: (id) =>

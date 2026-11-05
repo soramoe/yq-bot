@@ -2139,3 +2139,114 @@ test('点歌队列：页面控件必须真的接到 app.js', () => {
   assert.match(apiSrc, /songAction/)
 })
 
+async function mountPush({ provider = '', target = '', fail = '', testResult = null } = {}) {
+  const { createPushConfig } = await import('../../web/views/push-config.js')
+  const select = new FakeNode('select')
+  const input = new FakeNode('input')
+  const saveButton = new FakeNode('button')
+  const testButton = new FakeNode('button')
+  const hint = new FakeNode('p')
+  const saved = []
+  const toasts = []
+  const api = {
+    push: async () => ({ ok: true, provider, target }),
+    savePush: async (p, t) => {
+      if (fail) throw new Error(fail)
+      saved.push({ provider: p, target: t })
+      return { ok: true, provider: p, target: t }
+    },
+    testPush: async () => testResult ?? { ok: true, sent: true },
+  }
+  const cfg = createPushConfig({
+    select,
+    input,
+    saveButton,
+    testButton,
+    hint,
+    api,
+    toast: (text, level) => toasts.push({ text, level }),
+  })
+  return { cfg, select, input, saveButton, testButton, hint, saved, toasts }
+}
+
+test('手机推送：打开时回填渠道与目标，并切到对应的说明', async () => {
+  const { cfg, select, input, hint } = await mountPush({ provider: 'ntfy', target: 'yuyue3' })
+  await cfg.load()
+  assert.equal(select.value, 'ntfy')
+  assert.equal(input.value, 'yuyue3')
+  assert.match(hint.textContent, /topic/)
+})
+
+test('手机推送：只填目标不选渠道、或选了渠道不填目标，都不发请求', async () => {
+  const { cfg, select, input, saved, toasts } = await mountPush()
+
+  select.value = ''
+  input.value = 'abc'
+  await cfg.save()
+  assert.equal(saved.length, 0)
+  assert.match(toasts.at(-1).text, /先选一个推送渠道/)
+
+  select.value = 'bark'
+  input.value = ''
+  await cfg.save()
+  assert.equal(saved.length, 0)
+  assert.match(toasts.at(-1).text, /填一下推送目标/)
+})
+
+test('手机推送：保存会把渠道与目标一起发，成功后回填', async () => {
+  const { cfg, select, input, saved, toasts } = await mountPush()
+  select.value = 'bark'
+  input.value = '  abc123  '
+  await cfg.save()
+
+  assert.deepEqual(saved, [{ provider: 'bark', target: 'abc123' }])
+  assert.equal(input.value, 'abc123')
+  assert.match(toasts.at(-1).text, /已保存手机推送（Bark（iOS））/)
+  assert.equal(toasts.at(-1).level, 'info')
+})
+
+test('手机推送：保存失败保留输入，按钮恢复', async () => {
+  const { cfg, select, input, saveButton, toasts } = await mountPush({ fail: '写不进去' })
+  select.value = 'serverchan'
+  input.value = 'SCT123456789'
+  await cfg.save()
+
+  assert.equal(input.value, 'SCT123456789', '失败不能把用户填的 key 清掉')
+  assert.equal(saveButton.disabled, false)
+  assert.match(toasts.at(-1).text, /写不进去/)
+  assert.equal(toasts.at(-1).level, 'error')
+})
+
+test('手机推送：测试成功与失败都要给出明确结果', async () => {
+  const ok = await mountPush({ provider: 'bark', target: 'abc' })
+  ok.select.value = 'bark'
+  ok.input.value = 'abc'
+  await ok.cfg.test()
+  assert.match(ok.toasts.at(-1).text, /测试推送发出去了/)
+
+  const bad = await mountPush({
+    provider: 'bark',
+    target: 'abc',
+    testResult: { ok: true, sent: false, error: 'key 无效', status: 0 },
+  })
+  bad.select.value = 'bark'
+  bad.input.value = 'abc'
+  await bad.cfg.test()
+  assert.match(bad.toasts.at(-1).text, /key 无效/)
+})
+
+test('手机推送：页面控件必须真的接到 app.js', () => {
+  const html = readFileSync(join(process.cwd(), 'web/index.html'), 'utf8')
+  const app = readFileSync(join(process.cwd(), 'web/app.js'), 'utf8')
+  const apiSrc = readFileSync(join(process.cwd(), 'web/core/api.js'), 'utf8')
+
+  for (const id of ['push-provider', 'push-target', 'push-save', 'push-test', 'push-hint']) {
+    assert.ok(html.includes(`id="${id}"`), `index.html 里没有 #${id}`)
+  }
+  assert.match(app, /createPushConfig\s*\(/)
+  assert.match(app, /pushProvider:\s*\$\('#push-provider'\)/)
+  assert.match(app, /pushConfig\.load\(\)/)
+  assert.match(apiSrc, /\/api\/push\/test/)
+  assert.match(apiSrc, /savePush/)
+})
+

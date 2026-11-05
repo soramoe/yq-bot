@@ -19,6 +19,7 @@ import { createSettings } from './views/settings.js';
 import { createStream } from './views/stream.js';
 import { createNotifyConfig } from './views/notify-config.js';
 import { createGoalConfig } from './views/goal-config.js';
+import { createPushConfig } from './views/push-config.js';
 import { createPatrons } from './views/patrons.js';
 import { createScQueue } from './views/sc-queue.js';
 import { createSongQueue } from './views/song-queue.js';
@@ -67,6 +68,11 @@ const dom = {
   goalText60: $('#goal-text-60'),
   goalText80: $('#goal-text-80'),
   goalText100: $('#goal-text-100'),
+  pushProvider: $('#push-provider'),
+  pushTarget: $('#push-target'),
+  pushSave: $('#push-save'),
+  pushTest: $('#push-test'),
+  pushHint: $('#push-hint'),
   dlgPlugins: $('#dlg-plugins'),
   plgTabs: $('#plg-tabs'),
   plgBody: $('#plg-body'),
@@ -124,6 +130,17 @@ const goalConfig = createGoalConfig({
     100: dom.goalText100,
   },
   button: dom.goalSave,
+  api,
+  toast,
+});
+
+// 手机推送也是机器级设置；和 webhook 分开配，接收人不是同一拨
+const pushConfig = createPushConfig({
+  select: dom.pushProvider,
+  input: dom.pushTarget,
+  saveButton: dom.pushSave,
+  testButton: dom.pushTest,
+  hint: dom.pushHint,
   api,
   toast,
 });
@@ -464,6 +481,7 @@ dom.btnRoom.addEventListener('click', () => {
   // 提醒地址同理：可能刚在另一个标签页改过
   notifyConfig.load();
   goalConfig.load();
+  pushConfig.load();
   // 打开期间每 2 秒刷一次：多房间的用处就是"一眼扫过去"，不刷新等于看快照
   startRoomPoll();
   dom.roomInput.focus();

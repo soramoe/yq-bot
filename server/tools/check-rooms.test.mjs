@@ -1963,3 +1963,163 @@ test('点歌接口：播放 / 完成 / 跳过与落盘', async (t) => {
   const saved = JSON.parse(readFileSync(join(dataDir, 'songs.json'), 'utf8'))
   assert.equal(saved.items.length, 0)
 })
+
+test('接口：/api/push 保存手机推送，坏配置当场 400，GET 读回并落盘', async (t) => {
+  const { app, dataDir } = makeApp(t, { rooms: ['100'] })
+  await app.start()
+
+  const routes = buildRoutes(app)
+  const { Readable } = await import('node:stream')
+  const post = async (body, path = '/api/push') => {
+    const res = fakeRes()
+    const req = Readable.from([Buffer.from(JSON.stringify(body))])
+    req.headers = { 'content-type': 'application/json' }
+    await routes.match('POST', path).handler({
+      req,
+      res,
+      url: new URL(`http://x${path}`),
+      app,
+    })
+    return res
+  }
+
+  assert.equal((await post({ provider: 'bark', target: 'abc123' })).statusCode, 200)
+  assert.equal(app.pushProvider, 'bark')
+
+  const spaced = await post({ provider: 'bark', target: 'bad key' })
+  assert.equal(spaced.statusCode, 400)
+  assert.match(JSON.parse(spaced.body).error.message, /空格/)
+
+  const urlKey = await post({ provider: 'serverchan', target: 'https://sctapi.ftqq.com/x' })
+  assert.equal(urlKey.statusCode, 400, 'Server酱 要的是 key，不是网址')
+
+  const missing = await post({ provider: 'ntfy' })
+  assert.equal(missing.statusCode, 400, '没填 target 不能存成半套配置')
+
+  const saved = JSON.parse(readFileSync(join(dataDir, 'app.json'), 'utf8'))
+  assert.equal(saved.pushProvider, 'bark')
+  assert.equal(saved.pushTarget, 'abc123')
+
+  const res = fakeRes()
+  await routes.match('GET', '/api/push').handler({ res, url: new URL('http://x/api/push'), app })
+  assert.deepEqual(JSON.parse(res.body), { ok: true, provider: 'bark', target: 'abc123' })
+
+  const cleared = await post({ provider: '', target: '' })
+  assert.equal(cleared.statusCode, 200)
+  assert.equal(app.pushProvider, '')
+})
+
+test('手机推送：开播边沿推到手机，不依赖 webhook', async (t) => {
+  const calls = []
+  const { app } = makeApp(t, {
+    rooms: ['100'],
+    cfg: { pushProvider: 'ntfy', pushTarget: 'yuyue3' },
+    fetchImpl: async (url, init) => {
+      calls.push({ url, init })
+      return { ok: true, status: 200, json: async () => ({ id: 'm1' }) }
+    },
+  })
+  await app.start()
+
+  app.rooms.get('100').runner.push(
+    { seq: 2, ts: 1_700_000_101_000, type: 'LIVE_START', payload: {} },
+    'live_started',
+  )
+  await new Promise((r) => setTimeout(r, 30))
+
+  assert.equal(calls.length, 1)
+  assert.match(calls[0].url, /^https:\/\/ntfy\.sh\/yuyue3\?title=/)
+  assert.match(calls[0].init.body, /开播/)
+})
+
+test('手机推送：大额提醒也会推手机', async (t) => {
+  const calls = []
+  const { app } = makeApp(t, {
+    rooms: ['100'],
+    cfg: { bigSpendBattery: 10000, pushProvider: 'bark', pushTarget: 'abc123' },
+    fetchImpl: async (url, init) => {
+      calls.push({ url, init })
+      return { ok: true, status: 200, json: async () => ({ code: 200 }) }
+    },
+  })
+  await app.start()
+
+  app.rooms.get('100').runner.push({
+    seq: 3,
+    ts: 1_700_000_102_000,
+    type: 'GIFT',
+    payload: {
+      uid: '7',
+      uname: '甲',
+      giftName: '火箭',
+      num: 1,
+      price: 10000,
+      battery: 10000,
+      isPaid: true,
+    },
+  })
+  await new Promise((r) => setTimeout(r, 30))
+
+  assert.equal(calls.length, 1)
+  const decoded = decodeURIComponent(calls[0].url)
+  assert.match(decoded, /【大额】/)
+  assert.match(decoded, /甲 送出 火箭/)
+})
+
+test('手机推送：失败只补一条警告，不影响页内提醒', async (t) => {
+  const { app } = makeApp(t, {
+    rooms: ['100'],
+    cfg: { pushProvider: 'bark', pushTarget: 'abc123' },
+    fetchImpl: async () => ({ ok: false, status: 502 }),
+  })
+  await app.start()
+  const seen = []
+  app.subscribe((m) => seen.push(m))
+
+  app.rooms.get('100').runner.push(
+    { seq: 2, ts: 1_700_000_103_000, type: 'LIVE_START', payload: {} },
+    'live_started',
+  )
+  await new Promise((r) => setTimeout(r, 30))
+
+  const notices = seen.filter((m) => m.type === 'notice')
+  assert.equal(notices.length, 2, '页内提醒 + 推送失败警告')
+  assert.match(notices[1].data.text, /手机推送没发出去/)
+  assert.equal(notices[1].data.level, 'warn')
+})
+
+test('接口：/api/push/test 未配置时 400，配好后能返回发送结果', async (t) => {
+  const calls = []
+  const { app } = makeApp(t, {
+    rooms: ['100'],
+    fetchImpl: async (url, init) => {
+      calls.push({ url, init })
+      return { ok: true, status: 200, json: async () => ({ code: 0 }) }
+    },
+  })
+  await app.start()
+  const routes = buildRoutes(app)
+  const { Readable } = await import('node:stream')
+  const post = async (path) => {
+    const res = fakeRes()
+    const req = Readable.from([Buffer.from('{}')])
+    req.headers = { 'content-type': 'application/json' }
+    await routes.match('POST', path).handler({
+      req,
+      res,
+      url: new URL(`http://x${path}`),
+      app,
+    })
+    return res
+  }
+
+  const off = await post('/api/push/test')
+  assert.equal(off.statusCode, 400)
+  assert.equal(JSON.parse(off.body).error.code, 'push_not_configured')
+
+  app.setPushSettings({ provider: 'serverchan', target: 'SCT123456789' })
+  const sent = await post('/api/push/test')
+  assert.equal(sent.statusCode, 200)
+  assert.equal(JSON.parse(sent.body).sent, true)
+  assert.equal(calls.at(-1).url, 'https://sctapi.ftqq.com/123456789.send')
+})
