@@ -56,6 +56,17 @@ test('Bark：key 拼路径，完整地址原样用', () => {
   assert.equal(buildPushRequest('bark', 'bad key', 'hi'), null);
 });
 
+test('推送：完整地址自带 query 时追加参数，不再拼第二个问号', () => {
+  const n = buildPushRequest('ntfy', 'https://ntfy.sh/yuyue3?auth=abc', 'hi');
+  assert.equal(new URL(n.url).searchParams.get('auth'), 'abc');
+  assert.equal(new URL(n.url).searchParams.get('title'), '渔月崽三代');
+  assert.equal(n.url.split('?').length - 1, 1, '只能有一个问号');
+
+  const b = buildPushRequest('bark', 'https://api.day.app/mykey?x=1', 'hi');
+  assert.equal(new URL(b.url).searchParams.get('x'), '1');
+  assert.equal(new URL(b.url).searchParams.get('level'), 'active');
+});
+
 test('ntfy：topic 拼路径，标题走 query 不进 header', () => {
   const req = buildPushRequest('ntfy', 'yuyue3', '下播了', { title: '开播提醒' });
   assert.equal(req.url, `https://ntfy.sh/yuyue3?title=${encodeURIComponent('开播提醒')}&tags=fish`);

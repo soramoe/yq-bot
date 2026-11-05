@@ -108,14 +108,18 @@ export function createPushConfig({ select, input, saveButton, testButton, hint, 
 
   async function test() {
     if (testing || saving) return;
-    if (!select.value || !String(input?.value ?? '').trim()) {
+    const provider = String(select?.value ?? '');
+    const target = String(input?.value ?? '').trim();
+    if (!provider || !target) {
       toast('先保存一个推送渠道，再发测试', 'warn');
       return;
     }
     testing = true;
     if (testButton) testButton.disabled = true;
     try {
-      const r = await api.testPush();
+      // 用输入框里的当前值测试，而不是已保存的旧配置：换了 key 还没
+      // 保存时，用户要确认的是"新的这套通不通"。
+      const r = await api.testPush({ provider, target });
       if (r?.sent) {
         toast('测试推送发出去了，去手机看看', 'info');
       } else {

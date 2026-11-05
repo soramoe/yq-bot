@@ -12,7 +12,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { EventEmitter } from 'node:events'
-import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdtempSync, readFileSync, readdirSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -1573,6 +1573,42 @@ test('礼物目标：过半与达成各播一次，重复事件不重复喊', as
   assert.equal(notices.length, 2)
 })
 
+test('礼物目标：同一场改了目标后，新档位还能再喊一次', async (t) => {
+  const { app } = makeApp(t, {
+    rooms: ['100'],
+    cfg: { giftGoalBattery: 10_000 },
+  })
+  await app.start()
+  const runner = app.runner
+  let gift = 5_000
+  runner.projection = { snapshot: () => ({ giftBattery: gift, sessionId: 's-goal' }) }
+
+  const notices = []
+  app.subscribe((m) => {
+    if (m.type === 'notice') notices.push(m)
+  })
+  const push = (seq, battery) => {
+    runner.push({
+      seq,
+      ts: 1_700_000_000_000 + seq,
+      type: 'GIFT',
+      payload: { uid: '7', uname: '甲', giftName: '火箭', num: 1, battery, isPaid: true },
+    })
+  }
+
+  push(1, 5_000)
+  await bigTick()
+  assert.equal(notices.length, 1, '先按 10000 的目标报一次 30%')
+
+  // 同场把目标调高：旧目标下的"已报过 30%"不能把新目标的 30% 也吞掉
+  app.setGiftGoal({ goalBattery: 20_000 })
+  gift = 6_000
+  push(2, 1_000)
+  await bigTick()
+  assert.equal(notices.length, 2, '改了目标，新档位要重新判断')
+  assert.match(notices.at(-1).data.text, /30%/)
+})
+
 test('礼物目标：后台房间的礼物不往当前页面报目标', async (t) => {
   const { app } = makeApp(t, {
     rooms: ['100', '200'],
@@ -1984,6 +2020,51 @@ test('点歌：写盘失败时不播「接下来播放」', async (t) => {
   assert.equal(runner.gate.said.length, saidBefore, '保存失败不能先说要播')
 })
 
+test('点歌：进队写盘失败时整份回滚，不广播也不播报', async (t) => {
+  const { app } = makeApp(t, { rooms: ['100'] })
+  await app.start()
+  const runner = app.runner
+  const broadcasts = []
+  app.subscribe((m) => {
+    if (m.type === 'songs') broadcasts.push(m)
+  })
+  app._saveSongs = () => {
+    throw new Error('disk full')
+  }
+
+  runner.push({
+    seq: 1,
+    ts: 1,
+    type: 'SUPER_CHAT',
+    payload: { uid: '7', uname: '甲', text: '点歌 晴天', yuan: 30 },
+  })
+
+  assert.equal(app.songsView().items.length, 0, '写不进盘就不能留在内存里假装成功')
+  assert.equal(broadcasts.length, 0, '没落盘不广播')
+  assert.equal(runner.gate.said.length, 0, '没落盘不播报')
+})
+
+test('点歌：songs.json 坏掉时留档，不当成空队列覆盖', async (t) => {
+  const warns = []
+  const { app, dataDir } = makeApp(t, {
+    rooms: ['100'],
+    log: { info() {}, warn: (m) => warns.push(m), error() {} },
+  })
+  await app.start()
+  writeFileSync(join(dataDir, 'songs.json'), '{ broken json')
+
+  app._songsLoaded = false
+  app.songQueue = []
+  app._loadSongs()
+
+  assert.equal(app.songsView().items.length, 0)
+  assert.equal(existsSync(join(dataDir, 'songs.json')), false, '坏文件不能留在原地被覆盖')
+  const bad = readdirSync(dataDir).filter((f) => /^songs\.json\.bad-\d+$/.test(f))
+  assert.equal(bad.length, 1, '坏文件要改名留档')
+  assert.match(bad[0], /^songs\.json\.bad-\d+$/)
+  assert.match(warns.join('\n'), /songs\.json/)
+})
+
 test('点歌接口：播放 / 完成 / 跳过与落盘', async (t) => {
   const { app, dataDir } = makeApp(t, { rooms: ['100'] })
   await app.start()
@@ -2257,9 +2338,9 @@ test('接口：/api/push/test 未配置时 400，配好后能返回发送结果'
   await app.start()
   const routes = buildRoutes(app)
   const { Readable } = await import('node:stream')
-  const post = async (path) => {
+  const post = async (path, body = {}) => {
     const res = fakeRes()
-    const req = Readable.from([Buffer.from('{}')])
+    const req = Readable.from([Buffer.from(JSON.stringify(body))])
     req.headers = { 'content-type': 'application/json' }
     await routes.match('POST', path).handler({
       req,
@@ -2279,6 +2360,16 @@ test('接口：/api/push/test 未配置时 400，配好后能返回发送结果'
   assert.equal(sent.statusCode, 200)
   assert.equal(JSON.parse(sent.body).sent, true)
   assert.equal(calls.at(-1).url, 'https://sctapi.ftqq.com/123456789.send')
+
+  // 页面上换了 key 还没保存：测试应该打新的，不是打旧的
+  const draft = await post('/api/push/test', { provider: 'bark', target: 'draftkey' })
+  assert.equal(draft.statusCode, 200, '未保存的输入也要能测')
+  assert.match(calls.at(-1).url, /api\.day\.app\/draftkey/, '测试要用输入框里的新值')
+  assert.equal(app.pushProvider, 'serverchan', '测试不能顺手把草稿落盘')
+  assert.equal(app.pushTarget, 'SCT123456789')
+
+  const badDraft = await post('/api/push/test', { provider: 'bark', target: 'has space' })
+  assert.equal(badDraft.statusCode, 400, '草稿也要过同一套校验')
 })
 
 /* ══════════════════ OBS 场景联动 ══════════════════ */
@@ -2377,11 +2468,13 @@ test('OBS：开播/下播边沿各切一次场景，密码跟着配置走', asyn
   assert.equal(requests()[1].data.sceneName, '闲聊')
   assert.ok(calls.some((c) => c.closed === true), '切完要关连接')
 
-  // 同场景重复边沿不再连一次
-  const before = calls.length
+  // OBS 可能在两次边沿之间重启，场景被重置回默认；同一个目标也要
+  // 再下发一次，不能只信内存里的 _obsLastScene。
+  const before = requests().length
   runner.push({ seq: 3, ts: Date.now(), type: 'LIVE_END', payload: {} }, 'live_ended')
   await new Promise((r) => setTimeout(r, 30))
-  assert.equal(calls.length, before)
+  assert.equal(requests().length, before + 1, '同场景边沿也要重新切')
+  assert.equal(requests().at(-1).data.sceneName, '闲聊')
 })
 
 test('OBS：后台房间的开播/下播边沿不能切当前房间的场景', async (t) => {

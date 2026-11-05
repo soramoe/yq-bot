@@ -927,10 +927,8 @@ export function createReports({ dlg, toast }) {
   async function exportPoster(r) {
     try {
       const { filename, saved } = await downloadPoster(r, { save: saveBlob, toast });
-      toast(
-        saved ? `海报已生成 ${filename}` : `已生成 ${filename}，但当前环境不能自动下载`,
-        saved ? 'info' : 'warn',
-      );
+      // 不能自动下载的提示已经在 downloadPoster 里弹过，这里只报成功。
+      if (saved) toast(`海报已生成 ${filename}`, 'info');
     } catch (err) {
       toast(`海报生成失败：${err.message}`, 'error');
     }

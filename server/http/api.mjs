@@ -17,7 +17,7 @@ import { replay } from '../core/sandbox.mjs';
 import { MAX_BIG_SPEND_BATTERY, buildPatrons } from '../core/patrons.mjs';
 import { buildScQueue } from '../core/sc-queue.mjs';
 import { MAX_GOAL_BATTERY } from '../core/goal.mjs';
-import { sendPush } from '../core/push.mjs';
+import { pushTargetProblem, sendPush } from '../core/push.mjs';
 
 /**
  * @param {import('../app.mjs').App} app
@@ -597,12 +597,26 @@ export function buildRoutes(app) {
     sendJson(res, { ok: true, ...saved });
   });
 
-  r.post('/api/push/test', async ({ res }) => {
-    if (!app.pushProvider || !app.pushTarget) {
+  r.post('/api/push/test', async ({ req, res }) => {
+    const body = await readJson(req);
+    // 允许用页面上"还没保存"的渠道/目标来发测试：换 key 的常见流程是
+    // 先点测试看通不通，再保存。只校验，不落盘。
+    let provider = app.pushProvider;
+    let target = app.pushTarget;
+    if (typeof body?.provider === 'string' && body.provider.trim()) {
+      provider = body.provider.trim();
+      target = typeof body.target === 'string' ? body.target.trim() : '';
+      const problem = pushTargetProblem(provider, target);
+      if (problem) {
+        sendError(res, 400, 'bad_push', problem);
+        return;
+      }
+    }
+    if (!provider || !target) {
       sendError(res, 400, 'push_not_configured', '先在房间总览里填手机推送，再发测试');
       return;
     }
-    const result = await sendPush(app.pushProvider, app.pushTarget, '这是一条测试推送，收到就说明手机推送通了。', {
+    const result = await sendPush(provider, target, '这是一条测试推送，收到就说明手机推送通了。', {
       fetchImpl: app.fetchImpl,
       title: '渔月崽三代 · 测试',
     });

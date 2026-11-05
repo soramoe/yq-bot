@@ -782,9 +782,23 @@ export class App {
 
   _loadSongs() {
     if (this._songsLoaded) return this.songQueue;
-    this._songsLoaded = true;
+    const path = this._songsPath();
+    let text;
     try {
-      const raw = JSON.parse(readFileSync(this._songsPath(), 'utf8'));
+      text = readFileSync(path, 'utf8');
+    } catch (err) {
+      if (err?.code === 'ENOENT') {
+        this._songsLoaded = true;
+        this.songQueue = [];
+        return this.songQueue;
+      }
+      // 占用/权限/半写坏：先留档再按空队列继续，不能让第一条点歌
+      // 直接把最多 100 首的旧队列覆盖掉。
+      this._quarantineSongs(err);
+      return this.songQueue;
+    }
+    try {
+      const raw = JSON.parse(text);
       const items = Array.isArray(raw?.items) ? raw.items : [];
       this.songQueue = items
         .filter(
@@ -808,11 +822,23 @@ export class App {
           yuan: Number(it.yuan) || 0,
           status: it.status,
         }));
-    } catch {
-      // 第一次用、文件坏了：当空队列，不影响开播
-      this.songQueue = [];
+      this._songsLoaded = true;
+    } catch (err) {
+      this._quarantineSongs(err);
     }
     return this.songQueue;
+  }
+
+  _quarantineSongs(err) {
+    const bad = `${this._songsPath()}.bad-${Date.now()}`;
+    try {
+      renameSync(this._songsPath(), bad);
+      this.log.warn(`[点歌] songs.json 读不出来，已备份到 ${bad}：${err.message}`);
+    } catch (renameErr) {
+      this.log.warn(`[点歌] songs.json 读不出来且备份失败：${renameErr.message}`);
+    }
+    this._songsLoaded = true;
+    this.songQueue = [];
   }
 
   songsView() {
@@ -842,13 +868,18 @@ export class App {
     const request = parseSongRequest(rec);
     if (!request) return;
 
-    const item = pushSong(this._loadSongs(), request, rec);
+    const before = this._loadSongs().map((it) => ({ ...it }));
+    const item = pushSong(this.songQueue, request, rec);
     if (!item) return;
 
     try {
       this._saveSongs();
     } catch (err) {
+      // 先落盘再广播/播报：写不进去就整份回滚，否则页面和弹幕都
+      // 说"已点歌"，进程一退这首歌却不存在。
+      this.songQueue = before;
       this.log.warn(`[点歌] 保存队列失败：${err.message}`);
+      return;
     }
     this._broadcastSongs();
 
@@ -1686,11 +1717,14 @@ export class App {
     if (!milestone) return;
 
     const roomId = room.runner?.realRoomId || room.key;
-    const key = `${roomId}:${snap.sessionId ?? ''}:${milestone}`;
+    // 目标值进 key：同一场改了目标后，档位对应的金额变了，不能拿
+    // 旧目标的"已播过"把新档位永久静音。
+    const key = `${roomId}:${snap.sessionId ?? ''}:${goal}:${milestone}`;
     if (this._goalSaid.has(key)) return;
     this._goalSaid.add(key);
-    // 极端长跑也不让这个 Set 无限涨；清掉后最坏是同一场再喊一次
-    if (this._goalSaid.size > 500) this._goalSaid.clear();
+    // 极端长跑也不让这个 Set 无限涨；按插入顺序丢最早的，避免整表
+    // 清空后同一场已经播过的档位又响一遍。
+    while (this._goalSaid.size > 500) this._goalSaid.delete(this._goalSaid.values().next().value);
 
     const text = goalText(milestone, after, goal, this.giftGoalTexts?.[String(milestone)] ?? '');
     this._emit({ type: 'notice', data: { level: 'info', text } });
@@ -2006,10 +2040,6 @@ export class App {
     // 会让 OBS 永远停在旧场景。
     if (this._obsBusy) {
       this._obsPending = start;
-      return;
-    }
-    if (this._obsLastScene === scene) {
-      this._obsPending = null;
       return;
     }
 

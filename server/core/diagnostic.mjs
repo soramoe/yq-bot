@@ -197,7 +197,7 @@ export function unzipStore(buf) {
  *  刻意**不**包含 `session`：这个项目里 `sessionId` 是"第几场直播"，
  *  不是凭据。把诊断信息抹掉换不来安全，只换来"看不出来是哪一场"。 */
 const SECRET_KEY =
-  /(cookie|token|secret|password|passwd|pwd|salt|hash|apikey|api_key|access_?key|private_?key|sessdata|bili_?jct|webhook|bot_?key)/i;
+  /(cookie|token|secret|password|passwd|pwd|salt|hash|apikey|api_key|access_?key|private_?key|sessdata|bili_?jct|webhook|bot_?key|push_?target)/i;
 
 /** 值里出现这些形状就算泄露（防止有人把 Cookie 串塞进某个普通字段） */
 const SECRET_VALUE = /(SESSDATA|bili_jct|DedeUserID__ckMd5)\s*=/i;

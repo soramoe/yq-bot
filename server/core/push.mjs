@@ -110,15 +110,22 @@ export function buildPushRequest(provider, target, text, { title = '渔月崽三
 
   if (provider === 'bark') {
     const base = barkBase(t);
-    const url = `${base}/${encodeURIComponent(body)}?title=${encodeURIComponent(title)}&group=${encodeURIComponent('渔月崽三代')}&level=active`;
-    return { url, init: { method: 'GET' } };
+    // 用 URL 拼，不手写 ?：完整地址可能已经带了 ?auth=… 之类的参数
+    const u = new URL(base);
+    u.pathname = `${u.pathname.replace(/\/+$/, '')}/${encodeURIComponent(body)}`;
+    u.searchParams.set('title', title);
+    u.searchParams.set('group', '渔月崽三代');
+    u.searchParams.set('level', 'active');
+    return { url: u.toString(), init: { method: 'GET' } };
   }
 
   if (provider === 'ntfy') {
     const base = ntfyBase(t);
-    const url = `${base}?title=${encodeURIComponent(title)}&tags=fish`;
+    const u = new URL(base);
+    u.searchParams.set('title', title);
+    u.searchParams.set('tags', 'fish');
     return {
-      url,
+      url: u.toString(),
       init: {
         method: 'POST',
         headers: { 'content-type': 'text/plain; charset=utf-8' },

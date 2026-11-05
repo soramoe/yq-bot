@@ -2123,6 +2123,18 @@ test('点歌队列：接口失败只提示，不把队列改坏', async (t) => {
   assert.equal(empty.badge.hidden, true)
 })
 
+test('点歌队列：切房间 reset 后重新拉取，不能把全局队列的徽标清零', async (t) => {
+  const { view, badge } = await mountSong(t)
+  view.open()
+  await new Promise((r) => setImmediate(r))
+  assert.equal(badge.textContent, '1')
+
+  view.reset()
+  await new Promise((r) => setImmediate(r))
+  assert.equal(badge.textContent, '1', '队列是全局的，换房间不能清零徽标')
+  assert.equal(badge.hidden, false)
+})
+
 test('点歌队列：页面控件必须真的接到 app.js', () => {
   const html = readFileSync(join(process.cwd(), 'web/index.html'), 'utf8')
   const app = readFileSync(join(process.cwd(), 'web/app.js'), 'utf8')

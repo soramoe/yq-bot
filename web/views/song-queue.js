@@ -184,9 +184,9 @@ export function createSongQueue({ dlg, badge = null, api, toast = () => {} }) {
   }
 
   function reset() {
-    data = { current: null, queued: 0, items: [] };
-    renderBadge();
-    refreshIfOpen();
+    // 队列是整机一份、不随房间变；切房时不能把徽标清零，否则
+    // 队列还在、页面却说没有。直接重拉一次，以服务端为准。
+    load();
   }
 
   renderBadge();

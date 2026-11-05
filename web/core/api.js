@@ -186,7 +186,11 @@ export const api = {
       method: 'POST',
       body: weekly === undefined ? { provider, target } : { provider, target, weekly },
     }),
-  testPush: () => request('/api/push/test', { method: 'POST', body: {} }),
+  testPush: (settings) =>
+    request('/api/push/test', {
+      method: 'POST',
+      body: settings && typeof settings === 'object' ? { provider: settings.provider, target: settings.target } : {},
+    }),
   /** OBS 场景联动：读回来的配置不带密码原文 */
   obs: () => request('/api/obs'),
   saveObs: (settings) => request('/api/obs', { method: 'POST', body: settings }),

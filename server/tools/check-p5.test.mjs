@@ -533,6 +533,10 @@ test('诊断包：配置里的 Cookie / 口令 / 密钥一律变成 ***，值本
       // 提醒 webhook 地址本身就是写凭据（query / 路径里带 key）
       notifyWebhook: 'https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=hook_key_123',
       botKey: 'bot_secret_456',
+      // 手机推送目标就是 bot token / SendKey / Bark key，诊断包里同样不能留
+      pushProvider: 'telegram',
+      pushTarget: '123456789:AAHpush_TOKEN_9876543210',
+      obsPassword: 'obs-pass-789',
     },
   });
 
@@ -542,6 +546,9 @@ test('诊断包：配置里的 Cookie / 口令 / 密钥一律变成 ***，值本
   assert.equal(config.cookie, '***');
   assert.equal(config.notifyWebhook, '***');
   assert.equal(config.botKey, '***');
+  assert.equal(config.pushTarget, '***', '手机推送目标也是凭据');
+  assert.equal(config.obsPassword, '***');
+  assert.equal(config.pushProvider, 'telegram', '渠道名不是凭据，要留着排障');
   assert.equal(config.accessToken, '***');
   assert.equal(config.nested.password, '***');
   assert.equal(config.nested.apiKey, '***');
@@ -557,6 +564,8 @@ test('诊断包：配置里的 Cookie / 口令 / 密钥一律变成 ***，值本
   assert.equal(all.includes('tok_live_123'), false);
   assert.equal(all.includes('hook_key_123'), false);
   assert.equal(all.includes('bot_secret_456'), false);
+  assert.equal(all.includes('AAHpush_TOKEN_9876543210'), false);
+  assert.equal(all.includes('obs-pass-789'), false);
 });
 
 test('诊断包：全角/深层结构也要脱敏，且不能因为嵌套过深爆栈', () => {
