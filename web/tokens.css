@@ -10,6 +10,9 @@
  * 二代界面"乱"的根因不是配色，是例外太多：11–16 六个字号混着用，
  * 蓝按钮、紫图标、彩虹头像、红绿状态点四种色彩语言并存。
  * 所以这里把可选项先砍到最少，后面写错都没得写。
+ *
+ * 1.0.3 配色调整：底色从纯黑偏一点海蓝，强调色从电光蓝换成海水蓝，
+ * 小字提亮到能过 AA；语义色只降饱和，不换色相，状态含义不变。
  */
 
 :root {
@@ -36,32 +39,63 @@
   --r-card: 8px;
   --r-panel: 12px;
 
-  /* ── 层次 ── */
-  --bg: #0b0d11;
-  --bg-1: #101318;
-  --bg-2: #151920;
-  --bg-3: #1c2129;
-  --line: #232936;
-  --line-soft: #1a1f28;
+  /* ── 层次：深海夜，带一点蓝，不压成纯黑 ── */
+  --bg: #0a0f15;
+  --bg-1: #0f161f;
+  --bg-2: #141d28;
+  --bg-3: #1b2532;
+  --line: #25313f;
+  --line-soft: #19222e;
+  --line-strong: #35455a;
 
   /* ── 文字 ── */
-  --text: #e8ebf1;
-  --text-2: #9aa3b2;
-  --text-3: #6a7383;
+  --text: #e9eef6;
+  --text-2: #9ba9ba;
+  --text-3: #7b899b;
 
-  /* ── 唯一强调色 ── */
-  --accent: #4c8dff;
-  --accent-dim: rgba(76, 141, 255, 0.14);
-  --accent-line: rgba(76, 141, 255, 0.35);
+  /* ── 唯一强调色：海水蓝，比电光蓝更稳，也更像这个产品的名字 ── */
+  --accent: #58a6e8;
+  --accent-dim: rgba(88, 166, 232, 0.14);
+  --accent-line: rgba(88, 166, 232, 0.38);
 
   /* ── 语义色：只用于"状态"和"事件类型"，不做装饰 ── */
-  --ok: #45c07d;
-  --warn: #e3a03c;
-  --bad: #e35d5d;
-  --violet: #a084ff;
-  --pink: #ef6a9e;
-  --amber: #e8894a;
+  --ok: #4cc38a;
+  --warn: #e2a34c;
+  --bad: #e46a6a;
+  --violet: #a78bfa;
+  --pink: #ee7aa8;
+  --amber: #e8925a;
 
   --font: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Microsoft YaHei', system-ui, sans-serif;
   --mono: ui-monospace, 'SF Mono', 'Cascadia Mono', Consolas, monospace;
+}
+
+/* ── 浅色主题「海盐白」 ──
+   暗色仍是默认；这一组只在 <html data-theme="light"> 时覆盖。
+   颜色只分三层：底、卡片、线；强调色还是只有一个蓝。 */
+[data-theme='light'] {
+  color-scheme: light;
+
+  --bg: #f3f6fa;
+  --bg-1: #ffffff;
+  --bg-2: #f7f9fc;
+  --bg-3: #eef2f8;
+  --line: #dbe3ee;
+  --line-soft: #e8eef6;
+  --line-strong: #c3d0e0;
+
+  --text: #17212e;
+  --text-2: #516073;
+  --text-3: #6d7a8c;
+
+  --accent: #1f6fb2;
+  --accent-dim: rgba(31, 111, 178, 0.1);
+  --accent-line: rgba(31, 111, 178, 0.32);
+
+  --ok: #1f8f5f;
+  --warn: #b57614;
+  --bad: #c23b3b;
+  --violet: #6b5bd2;
+  --pink: #c2467a;
+  --amber: #b56a2a;
 }

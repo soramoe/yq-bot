@@ -208,8 +208,13 @@ export async function sendDanmaku({
     csrf_token: csrf,
   }
 
-  // 结构化 @：纯文本 "@名字" 在 B站 里不会被识别成提及
-  if (reply && reply.uid) {
+  // 结构化 @：纯文本 "@名字" 在 B站 里不会被识别成提及。
+  // 正文里已经写了这个名字时不要再挂，否则 B站 会在前面补一个 @，名字出现两遍。
+  const wantReply =
+    reply &&
+    reply.uid &&
+    !(reply.uname && prepared.text.includes(String(reply.uname)))
+  if (wantReply) {
     params.reply_mid = String(reply.uid)
     params.reply_uname = String(reply.uname ?? '')
     params.reply_uname_color = String(reply.color ?? '#FB7299')

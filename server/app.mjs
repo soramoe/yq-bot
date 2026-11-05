@@ -226,6 +226,7 @@ export class App {
     this._pk = null;
     this._pkTimer = null;
     this._pkBusy = false;
+    this._pkInFlight = null;
     this._pkLastOppLive = null;
 
     /**
@@ -2779,7 +2780,12 @@ export class App {
 
   /** 立即拉一次。面板上的「刷新」用这个，不用等 60 秒。 */
   async pollPk() {
-    return this._pollPk();
+    // 同一时刻只发一轮请求；已经在跑就等这一轮，而不是立刻返回空快照
+    if (this._pkInFlight) return this._pkInFlight;
+    this._pkInFlight = this._pollPk().finally(() => {
+      this._pkInFlight = null;
+    });
+    return this._pkInFlight;
   }
 
   /** 当前房间的健康快照；页面和手机告警读的是同一份判断。 */
@@ -2825,9 +2831,9 @@ export class App {
       this._pkLastOppLive = null;
     }
     // 即使没配「对面房间」，也要轮询当前房间有没有开 PK（随机匹配同样要播）
-    this._pollPk().catch((err) => this.log.warn(`[PK] 首次拉取失败：${err.message}`));
+    this.pollPk().catch((err) => this.log.warn(`[PK] 首次拉取失败：${err.message}`));
     this._pkTimer = setInterval(() => {
-      this._pollPk().catch((err) => this.log.warn(`[PK] 拉取失败：${err.message}`));
+      this.pollPk().catch((err) => this.log.warn(`[PK] 拉取失败：${err.message}`));
     }, PK_POLL_SEC * 1000);
     this._pkTimer.unref?.();
   }

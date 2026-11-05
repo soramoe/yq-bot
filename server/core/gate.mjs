@@ -265,6 +265,15 @@ export class SendGate {
 
     const prepared = prepareText(text, { max: this.config.maxText })
 
+    // 结构化 @ 会由 B站 在正文前挂一个可点的「@昵称」标签。
+    // 如果文案里已经写了这个名字（常见于模板填了 {用户}），再挂一次就会变成
+    // 「@小明 感谢小明 的礼物」——名字出现两遍。这里统一收敛：正文已经带名字
+    // 就不再加结构化 @，正文没写名字才挂。插件不需要各自判断。
+    const effectiveReply =
+      reply && reply.uid && reply.uname && prepared.text.includes(String(reply.uname))
+        ? null
+        : reply
+
     // 无论演练还是实战，都先占住时间槽与去重窗口：
     // 否则演练时一路畅通，正式上线立刻被限速打脸。
     const now = this.now()
@@ -273,14 +282,14 @@ export class SendGate {
 
     if (this.config.dryRun) {
       this.counters.dryRun++
-      this._emitSent({ roomId, prepared, reply, reason, source, dryRun: true, code: 0 })
+      this._emitSent({ roomId, prepared, reply: effectiveReply, reason, source, dryRun: true, code: 0 })
       this.log.info(`[演练] 本该发送：${prepared.text}`)
       return { ok: true, skipped: null, dryRun: true, text: prepared.text }
     }
 
     let res
     try {
-      res = await this.send({ roomId, text: prepared.text, reply })
+      res = await this.send({ roomId, text: prepared.text, reply: effectiveReply })
     } catch (err) {
       this.counters.failed++
       this.log.error(`发送异常：${err?.message || err}`)
@@ -296,7 +305,7 @@ export class SendGate {
 
     if (res.ok) {
       this.counters.sent++
-      this._emitSent({ roomId, prepared, reply, reason, source, dryRun: false, code: 0 })
+      this._emitSent({ roomId, prepared, reply: effectiveReply, reason, source, dryRun: false, code: 0 })
     } else {
       this.counters.failed++
       this.log.warn(`发送失败 [${res.code}] ${res.message}`)

@@ -213,37 +213,40 @@ function estimateControl(kind, text) {
   return padX * 2 + border + textW;
 }
 
-test('顶栏：右侧动作区不能把房间名挤没', () => {
-  const actions = /<div class="top-actions">([\s\S]*?)<\/div>/.exec(HTML);
+test('顶栏：第一行不塞常用按钮，第二行放得下', () => {
+  const main = /<div class="topbar-main">([\s\S]*?)<\/div>\s*<nav class="topbar-nav"/.exec(HTML);
+  assert.ok(main, '顶栏里找不到 .topbar-main');
+
+  const nav = /<nav class="topbar-nav"[^>]*>([\s\S]*?)<\/nav>/.exec(HTML);
+  assert.ok(nav, '顶栏里找不到 .topbar-nav');
+
+  const buttons = [...nav[1].matchAll(/<button[^>]*>([\s\S]*?)<\/button>/g)]
+    .map((m) => m[1].replace(/<span class="badge"[\s\S]*?<\/span>/g, '').replace(/<[^>]+>/g, '').trim())
+    .filter(Boolean);
+  assert.deepEqual(buttons, ['点歌队列', 'SC 待读', '战报', 'PK 情报', '付费用户榜'], `第二行按钮变了：${buttons.join(' / ')}`);
+
+  const gap = one(VARS['--s2']);
+  const total = buttons.reduce((sum, text) => sum + estimateControl('btn', text), 0) + gap * (buttons.length - 1);
+  const budget = 1025 - one(VARS['--s6']) * 2;
+  assert.ok(total <= budget, `第二行按钮合计约 ${Math.round(total)}px，超过 1025px 的 ${Math.round(budget)}px`);
+
+  // 第一行只剩状态、主题、更多：房间名要有 120px 的余地
+  const actions = /<div class="top-actions">([\s\S]*?)<div class="more-wrap">/.exec(HTML);
   assert.ok(actions, '顶栏里找不到 .top-actions');
-
-  const buttons = [...actions[1].matchAll(/<button class="btn"[^>]*>([^<]*)<\/button>/g)].map((m) => m[1].trim());
   const pills = [...actions[1].matchAll(/<span class="pill"[^>]*>([\s\S]*?)<\/span>\s*(?=<|$)/g)];
-
-  // 连接状态那个 pill 里含一个 6px 圆点 + 6px 间距
-  let total = 0;
-  for (const b of buttons) total += estimateControl('btn', b);
+  let row1 = 0;
   for (const m of pills) {
     const text = m[1].replace(/<[^>]+>/g, '').trim();
-    total += estimateControl('pill', text) + (/class="dot"/.test(m[1]) ? 12 : 0);
+    row1 += estimateControl('pill', text) + (/class="dot"/.test(m[1]) ? 12 : 0);
   }
-  // 演练开关：方框 30 + 间距 6 + 文字
   const switchText = (/<label class="switch"[\s\S]*?<span>([^<]*)<\/span>/.exec(actions[1]) ?? [])[1] ?? '演练模式';
-  total += 36 + estimateControl('pill', switchText);
-
-  const gap = one(VARS['--s3']);
-  const count = buttons.length + [...actions[1].matchAll(/<span class="pill"/g)].length + 1;
-  total += gap * (count - 1);
-
-  const topPad = one(VARS['--s6']);
-  const topGap = one(VARS['--s4']);
-  const brandMin = 120; // 圆点 + 名称 + 分隔符，房间名可以被省略号收缩
-
-  const budget = 1025 - topPad * 2 - topGap - brandMin;
+  row1 += 36 + estimateControl('pill', switchText) + 28 * 2; // 演练开关 + 主题/更多两枚图标
+  const rowGap = one(VARS['--s2']);
+  row1 += rowGap * (pills.length + 3);
+  const brandMin = 120;
   assert.ok(
-    total <= budget,
-    `顶栏右侧合计约 ${Math.round(total)}px，超过预算 ${Math.round(budget)}px：` +
-      `1025px 视口下房间名会被压成省略号。要么精简按钮，要么把断点提前`,
+    row1 + brandMin + one(VARS['--s4']) <= 1025 - one(VARS['--s6']) * 2,
+    `第一行动作约 ${Math.round(row1)}px，加上房间名会挤爆 1025px`,
   );
 });
 

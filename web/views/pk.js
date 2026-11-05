@@ -9,7 +9,7 @@ import { el, replaceChildren } from '../core/dom.js';
 import { api } from '../core/api.js';
 import { n } from '../core/format.js';
 
-const AUTO_MS = 30_000;
+const AUTO_MS = 60_000;
 
 function liveText(view) {
   if (!view) return '还没有数据';
@@ -27,20 +27,23 @@ function stat(label, value) {
 }
 
 function makeColumn(title) {
-  const name = el('div', { class: 'pk-col-title', text: title });
+  const name = el('span', { class: 'pk-col-title', text: title });
+  const state = el('span', { class: 'pk-state' });
+  const head = el('div', { class: 'pk-col-head' }, { children: [name, state] });
   const room = el('div', { class: 'pk-room-title', text: '—' });
-  const state = el('div', { class: 'pk-state' });
   const stats = el('div', { class: 'pk-stats' });
+  const rankTitle = el('div', { class: 'pk-rank-title', text: '高能榜' });
   const rank = el('ol', { class: 'pk-rank' });
   const box = el('section', { class: 'pk-col' }, {
-    children: [name, room, state, stats, rank],
+    children: [head, room, stats, rankTitle, rank],
   });
 
   function render(view) {
     if (!view) {
       room.textContent = '未配置 / 还没有数据';
-      state.textContent = '';
-      replaceChildren(stats, []);
+      state.textContent = '未拉取';
+      state.className = 'pk-state';
+      replaceChildren(stats, [el('p', { class: 'pk-empty', text: '保存对面房间号后开始拉数据' })]);
       replaceChildren(rank, [el('li', { class: 'pk-empty', text: '—' })]);
       return;
     }
@@ -80,16 +83,17 @@ export function createPk({ dlg, toast = () => {} }) {
   const input = el('input', {
     class: 'pk-input',
     attrs: {
+      id: 'pk-room',
       type: 'text',
       inputmode: 'numeric',
       autocomplete: 'off',
       spellcheck: 'false',
-      placeholder: '对面房间号（短号也行）',
+      placeholder: '例如 1901584685 或短号',
     },
   });
 
   const saveBtn = el('button', {
-    class: 'btn',
+    class: 'btn primary',
     text: '保存',
     attrs: { type: 'button' },
     on: { click: () => save() },
@@ -109,13 +113,25 @@ export function createPk({ dlg, toast = () => {} }) {
 
   const head = el('header', { class: 'pk-head' }, {
     children: [
-      el('h4', { text: 'PK 情报' }),
-      el('span', { class: 'pk-sub', text: '两边公开数据对比 · 不读对面弹幕' }),
-      el('span', { class: 'pk-spacer' }),
+      el('div', { class: 'pk-head-txt' }, {
+        children: [
+          el('h4', { text: 'PK 情报' }),
+          el('p', { class: 'pk-sub', text: '两边公开数据对比 · 不读对面弹幕' }),
+        ],
+      }),
+      el('div', { class: 'pk-head-actions' }, { children: [refreshBtn, closeBtn] }),
+    ],
+  });
+
+  const config = el('div', { class: 'pk-config' }, {
+    children: [
+      el('label', { class: 'pk-config-label', text: '对面房间号', attrs: { for: 'pk-room' } }),
       input,
       saveBtn,
-      refreshBtn,
-      closeBtn,
+      el('p', {
+        class: 'pk-config-hint',
+        text: '短号也行；保存后每 60 秒自动拉一次，对面开播 / 下播时提醒一次。',
+      }),
     ],
   });
 
@@ -123,10 +139,7 @@ export function createPk({ dlg, toast = () => {} }) {
   const opp = makeColumn('对面');
   const grid = el('div', { class: 'pk-grid' }, { children: [self.box, opp.box] });
   const compare = el('p', { class: 'pk-compare' });
-  const foot = el('p', {
-    class: 'pk-foot',
-    text: '每 60 秒自动拉一次对面房间；对面开播 / 下播时会提醒一次。',
-  });
+  const body = el('div', { class: 'pk-body' }, { children: [compare, grid] });
 
   const briefBox = el('input', { class: 'pk-check', attrs: { type: 'checkbox' } });
   const threshold = el('input', {
@@ -153,38 +166,49 @@ export function createPk({ dlg, toast = () => {} }) {
     class: 'pk-text',
     attrs: { type: 'text', maxlength: '80', placeholder: '对方一般时说什么' },
   });
-  const briefRow = el('div', { class: 'pk-brief' }, {
+
+  const field = (label, box) =>
+    el('label', { class: 'pk-field' }, {
+      children: [el('span', { text: label }), box],
+    });
+
+  const brief = el('section', { class: 'pk-brief' }, {
     children: [
-      el('label', { class: 'pk-brief-line' }, {
-        children: [briefBox, el('span', { text: '开场 PK 时自动播报对面情报' })],
+      el('label', { class: 'pk-brief-head' }, {
+        children: [
+          briefBox,
+          el('strong', { text: '开场 PK 播报' }),
+          el('span', { class: 'pk-brief-sub', text: '对面开播时自动报一段，报完再恢复正常发言' }),
+        ],
       }),
-      el('label', { class: 'pk-brief-line' }, {
-        children: [el('span', { text: '榜十贡献满' }), threshold, el('span', { text: '算强（0 = 永远算一般）' })],
+      el('label', { class: 'pk-field pk-field-inline' }, {
+        children: [
+          el('span', { text: '榜十贡献 ≥' }),
+          threshold,
+          el('span', { text: '算强；0 = 永远算一般' }),
+        ],
       }),
-      el('label', { class: 'pk-brief-line' }, {
-        children: [el('span', { text: '播报文案（保留占位符）：' })],
+      el('div', { class: 'pk-fields' }, {
+        children: [
+          field('主播', nameInput),
+          field('在线人数', onlineInput),
+          field('前十贡献', rankInput),
+        ],
       }),
-      el('label', { class: 'pk-brief-line' }, {
-        children: [el('span', { text: '主播：' }), nameInput],
-      }),
-      el('label', { class: 'pk-brief-line' }, {
-        children: [el('span', { text: '人数：' }), onlineInput],
-      }),
-      el('label', { class: 'pk-brief-line' }, {
-        children: [el('span', { text: '贡献：' }), rankInput],
-      }),
-      el('p', { class: 'pk-hint', text: '整段都能改；{名字}、{人数}、{贡献} 会替换成实时数据，别删。' }),
-      el('label', { class: 'pk-brief-line' }, {
-        children: [el('span', { text: '强：' }), strongInput],
-      }),
-      el('label', { class: 'pk-brief-line' }, {
-        children: [el('span', { text: '弱：' }), weakInput],
+      el('p', { class: 'pk-hint', text: '{名字}、{人数}、{贡献} 会替换成实时数据，改文案时别删。' }),
+      el('div', { class: 'pk-fields pk-fields-2' }, {
+        children: [
+          field('对方很强', strongInput),
+          field('对方一般', weakInput),
+        ],
       }),
     ],
   });
 
+  const foot = el('p', { class: 'pk-foot' });
+
   replaceChildren(dlg, [
-    el('div', { class: 'pk-wrap' }, { children: [head, grid, compare, briefRow, foot] }),
+    el('div', { class: 'pk-wrap' }, { children: [head, config, body, brief, foot] }),
   ]);
 
   dlg.addEventListener('close', () => stopAuto());
@@ -203,26 +227,29 @@ export function createPk({ dlg, toast = () => {} }) {
     }, AUTO_MS);
   }
 
-  function render(view) {
-    input.value = view?.roomId || '';
-    const brief = view?.brief ?? {};
-    briefBox.checked = brief.enabled === true;
-    threshold.value = String(brief.threshold ?? 1000);
-    nameInput.value = brief.name || '迎战主播：{名字}';
-    onlineInput.value = brief.online || '在线人数：{人数}';
-    rankInput.value = brief.rank || '前十贡献：{贡献}';
-    strongInput.value = brief.strong || '';
-    weakInput.value = brief.weak || '';
+  // syncForm 只在打开面板、保存成功时用：自动刷新不能覆盖用户正在改的输入框
+  function render(view, syncForm = false) {
+    if (syncForm) {
+      input.value = view?.roomId || '';
+      const b = view?.brief ?? {};
+      briefBox.checked = b.enabled === true;
+      threshold.value = String(b.threshold ?? 1000);
+      nameInput.value = b.name || '迎战主播：{名字}';
+      onlineInput.value = b.online || '在线人数：{人数}';
+      rankInput.value = b.rank || '前十贡献：{贡献}';
+      strongInput.value = b.strong || '';
+      weakInput.value = b.weak || '';
+    }
     foot.textContent = view?.stale
       ? '数据超过 3 分钟没更新了，可能不是现状；点「刷新」再拉一次。'
-      : '每 60 秒自动拉一次对面房间；对面开播 / 下播时会提醒一次。';
+      : '数据来自对方的公开直播间，不需要登录对方账号。';
     const selfView = view?.self ?? null;
     const oppView = view?.opponent ?? null;
     self.render(selfView);
     opp.render(oppView);
 
     if (!view?.enabled) {
-      compare.textContent = '填一个对面房间号，保存后开始对比。';
+      compare.textContent = '填一个对面房间号并保存，开始对比两边人气与高能榜。';
       compare.className = 'pk-compare';
       return;
     }
@@ -263,7 +290,7 @@ export function createPk({ dlg, toast = () => {} }) {
   async function load() {
     try {
       const view = await api.pk();
-      render(view);
+      render(view, true);
       if (view?.enabled) refresh();
     } catch (err) {
       toast(`PK 情报打不开：${err.message}`, 'error');
@@ -274,44 +301,48 @@ export function createPk({ dlg, toast = () => {} }) {
     const raw = input.value.trim();
     const rawThreshold = threshold.value.trim();
     const wantThreshold = Number(rawThreshold);
-    // Number('') === 0：清空输入框不能被当成"0 = 永远算一般"
-    if (!rawThreshold || !Number.isInteger(wantThreshold) || wantThreshold < 0) {
-      toast('强敌阈值要写成 0 或正整数', 'error');
-      return;
-    }
-    for (const [label, box, placeholder] of [
-      ['主播', nameInput, '{名字}'],
-      ['人数', onlineInput, '{人数}'],
-      ['贡献', rankInput, '{贡献}'],
-    ]) {
-      const text = box.value.trim();
-      if (!text) {
-        toast(`${label}播报文案不能为空`, 'error');
+    // 只对比、不开场播报时，不该被播报文案挡住保存
+    if (briefBox.checked) {
+      // Number('') === 0：清空输入框不能被当成"0 = 永远算一般"
+      if (!rawThreshold || !Number.isInteger(wantThreshold) || wantThreshold < 0) {
+        toast('强敌阈值要写成 0 或正整数', 'error');
         return;
       }
-      if (!text.includes(placeholder)) {
-        toast(`${label}播报文案里要保留 ${placeholder}`, 'error');
+      for (const [label, box, placeholder] of [
+        ['主播', nameInput, '{名字}'],
+        ['人数', onlineInput, '{人数}'],
+        ['贡献', rankInput, '{贡献}'],
+      ]) {
+        const text = box.value.trim();
+        if (!text) {
+          toast(`${label}播报文案不能为空`, 'error');
+          return;
+        }
+        if (!text.includes(placeholder)) {
+          toast(`${label}播报文案里要保留 ${placeholder}`, 'error');
+          return;
+        }
+      }
+      if (!strongInput.value.trim() || !weakInput.value.trim()) {
+        toast('强弱两段文案都要填', 'error');
         return;
       }
     }
-    if (!strongInput.value.trim() || !weakInput.value.trim()) {
-      toast('强弱两段文案都要填', 'error');
-      return;
-    }
+    const safeThreshold = Number.isInteger(wantThreshold) && wantThreshold >= 0 ? wantThreshold : 1000;
     saveBtn.disabled = true;
     try {
       const saved = await api.savePk({
         roomId: raw,
         enabled: briefBox.checked,
-        threshold: wantThreshold,
-        name: nameInput.value.trim(),
-        online: onlineInput.value.trim(),
-        rank: rankInput.value.trim(),
-        strong: strongInput.value.trim(),
-        weak: weakInput.value.trim(),
+        threshold: safeThreshold,
+        name: nameInput.value.trim() || '迎战主播：{名字}',
+        online: onlineInput.value.trim() || '在线人数：{人数}',
+        rank: rankInput.value.trim() || '前十贡献：{贡献}',
+        strong: strongInput.value.trim() || '对方看起来很强，谨慎对待',
+        weak: weakInput.value.trim() || '对方看起来一般，但也要全力以赴',
       });
       toast(raw ? '已保存 PK 房间与开场播报' : '已关闭 PK 情报（开场播报设置已保留）');
-      render(saved);
+      render(saved, true);
       if (saved.roomId) refresh();
     } catch (err) {
       toast(`保存 PK 设置失败：${err.message}`, 'error');

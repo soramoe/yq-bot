@@ -113,7 +113,13 @@ export function createSide(container, { toast = () => {} } = {}) {
   });
 
   /* ── 访问口令 ── */
-  const access = panel(container, '访问口令');
+  // 常驻的只留连接与账号；其余收进折叠层，右栏不再是一列永远滚不到底的面板
+  const more = el('details', { class: 'side-more' });
+  const moreBody = el('div', { class: 'side-more-body' });
+  more.append(el('summary', { text: '更多状态与排行' }), moreBody);
+  container.append(more);
+
+  const access = panel(moreBody, '访问口令');
   const acState = kv(access.body, '状态');
   const acInput = el('input', {
     class: 'plg-input',
@@ -218,7 +224,7 @@ export function createSide(container, { toast = () => {} } = {}) {
   });
 
   /* ── 发送闸门 ── */
-  const gate = panel(container, '发送闸门');
+  const gate = panel(moreBody, '发送闸门');
   const gateMode = kv(gate.body, '模式');
   const gateSent = kv(gate.body, '真实发送');
   const gateDry = kv(gate.body, '演练通过');
@@ -227,19 +233,19 @@ export function createSide(container, { toast = () => {} } = {}) {
   const gateFail = kv(gate.body, '失败');
 
   /* ── 长期观众簿 ── */
-  const roster = panel(container, '长期观众簿');
+  const roster = panel(moreBody, '长期观众簿');
   const rosterPeople = kv(roster.body, '认识的人');
   const rosterKeep = kv(roster.body, '保留期');
 
   /* ── 插件 ── */
-  const plugins = panel(container, '插件');
+  const plugins = panel(moreBody, '插件');
   const pluginList = el('div');
   plugins.body.append(pluginList);
   let pluginSignature = '';
 
   /* ── 本场排行 ── */
-  const rankGifters = panel(container, '本场送礼 TOP');
-  const rankGifts = panel(container, '礼物排行');
+  const rankGifters = panel(moreBody, '本场送礼 TOP');
+  const rankGifts = panel(moreBody, '礼物排行');
 
   return {
     /** 每秒一次，用精简状态 */

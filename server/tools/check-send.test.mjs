@@ -148,7 +148,7 @@ test('发送：带 @ 时必须用结构化字段（纯文本 @ 在 B站 无效�
   const post = fakePost({ code: 0 })
   await sendDanmaku({
     roomId: ROOM,
-    text: '@小明 欢迎',
+    text: '欢迎来到直播间',
     cookie: GOOD_COOKIE,
     reply: { uid: 12345, uname: '小明' },
     post,
@@ -158,6 +158,22 @@ test('发送：带 @ 时必须用结构化字段（纯文本 @ 在 B站 无效�
   assert.equal(body.get('reply_mid'), '12345')
   assert.equal(body.get('reply_uname'), '小明')
   assert.equal(body.get('show_reply'), 'true')
+})
+
+test('发送：正文里已经写了名字时不再挂结构化 @，避免名字出现两遍', async () => {
+  const post = fakePost({ code: 0 })
+  await sendDanmaku({
+    roomId: ROOM,
+    text: '感谢小明送出的礼物',
+    cookie: GOOD_COOKIE,
+    reply: { uid: 12345, uname: '小明' },
+    post,
+  })
+
+  const body = new URLSearchParams(post.calls[0].opts.body)
+  assert.equal(body.get('msg'), '感谢小明送出的礼物')
+  assert.equal(body.get('reply_mid'), null, '名字已经在正文里了')
+  assert.equal(body.get('show_reply'), null)
 })
 
 test('发送：不带 @ 时不要出现 reply 字段（多余字段可能触发风控）', async () => {
@@ -234,6 +250,33 @@ test('闸门：正常发送会记一条 SENT 事件', async (t) => {
   assert.equal(records[0].payload.text, '欢迎小明')
   assert.equal(records[0].payload.reason, 'welcome')
   assert.equal(records[0].payload.source, 'welcome')
+})
+
+test('闸门：正文已带昵称时不再挂结构化 @，也不在事件里记 reply', async (t) => {
+  const { gate, calls, records } = makeGate(t)
+  await gate.say({
+    roomId: ROOM,
+    text: '欢迎小明',
+    reply: { uid: 456, uname: '小明' },
+    reason: 'welcome',
+  })
+
+  assert.equal(calls.length, 1)
+  assert.equal(calls[0].reply, null, '名字已经在正文里，不能再挂 @')
+  assert.equal(records[0].payload.replyUid, null)
+})
+
+test('闸门：正文没写昵称时照常挂结构化 @', async (t) => {
+  const { gate, calls, records } = makeGate(t)
+  await gate.say({
+    roomId: ROOM,
+    text: '欢迎来到直播间',
+    reply: { uid: 456, uname: '小明' },
+    reason: 'welcome',
+  })
+
+  assert.equal(calls[0].reply?.uid, 456)
+  assert.equal(records[0].payload.replyUid, 456)
 })
 
 test('闸门：演练模式不真发，但照样记 SENT（标记 dryRun）', async (t) => {

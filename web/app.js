@@ -98,8 +98,66 @@ const dom = {
   maintClose: $('#maint-close'),
   btnOverlay: $('#btn-overlay'),
   dlgOverlay: $('#dlg-overlay'),
+  themeToggle: $('#theme-toggle'),
+  moreBtn: $('#more-btn'),
+  moreMenu: $('#more-menu'),
   toasts: $('#toasts'),
 };
+
+/* ══════════════════════ 主题 ══════════════════════
+   默认浅色；顶栏那枚太阳/月亮切换并记住选择。
+   主题在 <html data-theme> 上，tokens.css 里只有一组浅色覆盖。 */
+const THEME_KEY = 'yuqing-theme';
+const themeMeta = document.querySelector('meta[name="theme-color"]');
+let theme = 'light';
+try {
+  const saved = localStorage.getItem(THEME_KEY);
+  if (saved === 'dark' || saved === 'light') theme = saved;
+} catch {
+  // 隐私模式/禁用 localStorage 时就用默认值
+}
+
+function applyTheme(mode) {
+  const light = mode === 'light';
+  document.documentElement.dataset.theme = light ? 'light' : 'dark';
+  if (themeMeta) themeMeta.setAttribute('content', light ? '#f3f6fa' : '#0a0f15');
+  dom.themeToggle?.setAttribute('title', light ? '切换到暗色' : '切换到浅色');
+  dom.themeToggle?.setAttribute('aria-label', light ? '切换到暗色' : '切换到浅色');
+}
+applyTheme(theme);
+
+dom.themeToggle?.addEventListener('click', () => {
+  theme = theme === 'light' ? 'dark' : 'light';
+  try {
+    localStorage.setItem(THEME_KEY, theme);
+  } catch {
+    // 存不下也不影响这次切换
+  }
+  applyTheme(theme);
+});
+
+/* 顶栏「更多」：插件/挂件/维护/换房间收进一个菜单，
+   按钮本身还在，原来的 id 和监听都不用动。 */
+function closeMoreMenu() {
+  if (!dom.moreMenu) return;
+  dom.moreMenu.hidden = true;
+  dom.moreBtn?.setAttribute('aria-expanded', 'false');
+}
+dom.moreBtn?.addEventListener('click', (e) => {
+  e.stopPropagation();
+  const open = dom.moreMenu.hidden;
+  dom.moreMenu.hidden = !open;
+  dom.moreBtn.setAttribute('aria-expanded', String(open));
+});
+dom.moreMenu?.addEventListener('click', (e) => {
+  if (e.target.closest('button')) closeMoreMenu();
+});
+document.addEventListener('click', (e) => {
+  if (!dom.moreMenu?.hidden && !e.target.closest('.more-wrap')) closeMoreMenu();
+});
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape') closeMoreMenu();
+});
 
 const stats = createStats(dom.stats);
 const side = createSide(dom.side, { toast });

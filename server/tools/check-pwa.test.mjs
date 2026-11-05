@@ -135,7 +135,7 @@ test('静态服务：清单 / SW / 图标都能真的取到，且类型正确', 
 test('页面：声明了清单、主题色和离线提示位', () => {
   const html = read('index.html')
   assert.match(html, /<link rel="manifest" href="\/manifest\.webmanifest"/)
-  assert.match(html, /<meta name="theme-color" content="#0b0d11"/)
+  assert.match(html, /<meta name="theme-color" content="#[0-9a-fA-F]{3,8}"/)
   assert.match(html, /rel="apple-touch-icon"/, 'iOS 不读 manifest 的图标，得单独给一张')
   assert.match(
     html,

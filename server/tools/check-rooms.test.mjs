@@ -2787,6 +2787,30 @@ test('PK：对面开播 / 下播各提醒一次，重复轮询不重复喊', asy
   assert.match(notices[1], /【PK】对面下播了/)
 })
 
+test('PK：并发刷新共用一轮轮询，后到的请求不会拿到空快照', async (t) => {
+  const { app } = makeApp(t, {
+    rooms: ['100'],
+    cfg: { pkRoomId: '200' },
+    fetchRoom: async (id) => {
+      await new Promise((r) => setTimeout(r, 12))
+      return pkInfo(Number(id) === 200 ? 200 : 100, true)
+    },
+    fetchRank: async () => ({ items: [], total: 0 }),
+  })
+  await app.start()
+  await app.pollPk() // 先把启动时那一轮等完
+
+  const first = app.pollPk()
+  await new Promise((r) => setTimeout(r, 5))
+  const second = app.pollPk()
+  const [a, b] = await Promise.all([first, second])
+
+  assert.ok(a.at > 0 && b.at > 0, '两边的刷新都应该拿到数据')
+  assert.equal(a.at, b.at, '同一轮轮询应该共用同一份快照')
+  assert.equal(a.self.online, 100)
+  assert.equal(app._pkInFlight, null, '轮询结束后不能留下未清理的 in-flight')
+})
+
 test('PK：数据超过 3 分钟时标记 stale，页面据此提示可能过期', async (t) => {
   const { app } = makeApp(t, {
     rooms: ['100'],
