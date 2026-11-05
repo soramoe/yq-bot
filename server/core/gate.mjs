@@ -52,6 +52,8 @@ export const GATE_DEFAULTS = {
   dedupeWindowMs: 30_000,
   /** 去重表最多保留多少条，防止长直播里无限增长 */
   maxDedupeKeys: 500,
+  /** 授权失效时整机只读：所有发言都被拦下，但页面和日志照常 */
+  licenseBlocked: false,
 }
 
 /**
@@ -177,6 +179,7 @@ export class SendGate {
    * @returns {{ok:boolean, reason?:string, waitMs?:number}}
    */
   canSay({ roomId, text }) {
+    if (this.config.licenseBlocked) return { ok: false, reason: 'license' }
     const { text: clean } = prepareText(text, { max: this.config.maxText })
     if (!clean) return { ok: false, reason: 'empty' }
 

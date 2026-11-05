@@ -789,6 +789,11 @@ export function buildRoutes(app) {
     sendJson(res, app.healthSnapshot());
   });
 
+  /* 授权摘要 + 机器码。机器码是签授权要用的，不是密钥，可以外显。 */
+  r.get('/api/license', ({ res }) => {
+    sendJson(res, { ok: true, ...app.licenseView() });
+  });
+
   /* 付费用户档案。
      与战报同一个数据源（日志重放）、同一套金额口径（电池），
      区别只在于按 uid 跨场次聚合 —— 页面上的名字和数字不能自己再算一遍。 */

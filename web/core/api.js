@@ -176,6 +176,7 @@ export const api = {
   savePk: (settings) => request('/api/pk', { method: 'POST', body: settings }),
   refreshPk: () => request('/api/pk/refresh', { method: 'POST', timeout: 30000 }),
   health: () => request('/api/health', { timeout: 10000 }),
+  license: () => request('/api/license', { timeout: 10000 }),
   songs: () => request('/api/songs'),
   songAction: (id, action) =>
     request('/api/songs/action', { method: 'POST', body: { id, action } }),

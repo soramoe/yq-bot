@@ -3000,3 +3000,34 @@ test('账号：换号正在重建时再点一次，不会叠第二套连接', as
   assert.equal(boots, 2, '两间房只该重建一轮，连点两次不能建四份')
   assert.equal(app.rooms.size, 2)
 })
+
+test('授权：没有 license 文件按 7 天试用，试用过期后整机只读', async (t) => {
+  const { app, dataDir } = makeApp(t, { rooms: ['100'] });
+  // 把试用开始时间改到 10 天前：不依赖真实等待
+  writeFileSync(
+    join(dataDir, 'trial.json'),
+    JSON.stringify({ startedAt: Date.now() - 10 * 86400000 }),
+    'utf8',
+  );
+  await app.start();
+
+  const st = app.status();
+  assert.equal(st.license.state, 'expired');
+  assert.equal(st.license.canSpeak, false);
+  assert.equal(app.rooms.get('100').runner.gate.config.licenseBlocked, true);
+  assert.equal(app.licenseView().state, 'expired');
+  assert.match(app.licenseView().machineShort, /^[0-9A-F]{24}$/);
+
+  await app.stop();
+});
+
+test('授权：没有 license 但试用期内不拦发言', async (t) => {
+  const { app } = makeApp(t, { rooms: ['100'] });
+  await app.start();
+
+  assert.equal(app.status().license.state, 'trial');
+  assert.equal(app.status().license.canSpeak, true);
+  assert.equal(app.rooms.get('100').runner.gate.config.licenseBlocked, false);
+
+  await app.stop();
+});

@@ -55,6 +55,15 @@ import { fetchOnlineRank } from './bili/rank.mjs';
 import { fetchPkBattle } from './bili/pk-battle.mjs';
 import { PK_POLL_SEC, opponentEdge, pkCompare, pkRoomIdOf, pkRoomView, pkStale } from './core/pk.mjs';
 import { healthView } from './core/health.mjs';
+import {
+  ensureInstallId,
+  evaluateLicense,
+  licenseStateLabel,
+  machineCode,
+  machineGuid,
+  readLicenseFile,
+  trialStatus,
+} from './core/license.mjs';
 
 const SILENT_LOG = { debug() {}, info() {}, warn() {}, error() {} };
 
@@ -344,6 +353,14 @@ export class App {
      */
     this.access = new AccessGuard({ dataDir });
 
+    /**
+     * 离线授权。启动和换号时重新评估；失效时不改任何数据，
+     * 只把每个房间的闸门调成只读（日志继续写、页面继续看）。
+     */
+    this.license = null;
+    this._licenseKey = '';
+    this._licenseReady = false;
+
     /** 更新检查器。getUrl 每次现取，改完配置立刻生效，不用重启 */
     this.update = new UpdateChecker({
       current: this.version,
@@ -576,6 +593,8 @@ export class App {
     }
     // 先激活记住的那个：页面打开时看到的就是上次在看的那间
     await this._activate(remembered, { silent: true });
+    // 授权要在房间和登录凭证都就位后评估：只看 license.json 和当前 uid
+    this._refreshLicense();
 
     // 每秒推一次状态给前端。
     // 与事件流分开推：事件是"发生时"的，状态是"当前值"的，
@@ -1320,8 +1339,81 @@ export class App {
         text: `账号已切换为 ${account?.uname || account?.uid || '新账号'}，房间连接已重开`,
       },
     });
+    this._refreshLicense();
     this._pushStats();
     return this.status();
+  }
+
+  /* ────────────────────────── 离线授权 ────────────────────────── */
+
+  /**
+   * 重新评估授权并同步到所有房间的闸门。
+   *
+   * 授权文件里绑的是「机器码 + B站 uid」；uid 来自本地登录凭证，
+   * 所以换号后必须再跑一次，否则会把新号锁在上一张授权外。
+   */
+  _refreshLicense() {
+    const auth = new AuthStore({ dataDir: this.dataDir }).load().status();
+    const machine = machineCode({
+      guid: machineGuid(),
+      installId: ensureInstallId(this.dataDir),
+    });
+    const licenseFile = readLicenseFile(this.dataDir);
+    const status = licenseFile
+      ? evaluateLicense({ license: licenseFile, machine, uid: Number(auth.uid) || 0 })
+      : trialStatus({ dataDir: this.dataDir });
+    this.license = status;
+    this._machine = machine;
+
+    for (const room of this.rooms.values()) {
+      room.runner?.gate?.update({ licenseBlocked: !status.canSpeak });
+    }
+
+    // 状态没变就不打扰；从「能发」变「只读」或恢复时才广播一次
+    const key = `${status.state}:${status.canSpeak ? 1 : 0}`;
+    if (key !== this._licenseKey) {
+      this._licenseKey = key;
+      const text = `${licenseStateLabel(status.state)}${status.reason ? `：${status.reason}` : ''}`;
+      if (status.canSpeak) this.log.info(`[授权] ${text}`);
+      else this.log.warn(`[授权] ${text}`);
+      // 首次评估只写日志：启动时订阅者还没接上，广播也到不了页面；
+      // 之后从能发变只读、或恢复，才值得弹一次。
+      if (this._licenseReady) {
+        this._emit({
+          type: 'notice',
+          data: { level: status.canSpeak ? 'success' : 'warn', text: `授权：${text}` },
+        });
+      }
+    }
+    this._licenseReady = true;
+    return status;
+  }
+
+  /** 给页面/诊断用的授权视图。机器码不含密钥，可以外显（签发授权要它） */
+  licenseView() {
+    const s = this.license ?? this._refreshLicense();
+    const auth = new AuthStore({ dataDir: this.dataDir }).load().status();
+    const machine = this._machine ?? machineCode({
+      guid: machineGuid(),
+      installId: ensureInstallId(this.dataDir),
+    });
+    return {
+      state: s.state,
+      label: licenseStateLabel(s.state),
+      reason: s.reason || '',
+      canSpeak: s.canSpeak,
+      canUpdate: s.canUpdate,
+      graceDays: s.graceDays || 0,
+      uid: Number(auth.uid) || 0,
+      machine,
+      machineShort: machine.slice(0, 24).toUpperCase(),
+      edition: s.payload?.edition ?? '',
+      customer: s.payload?.customer ?? '',
+      expiresAt: s.payload?.expiresAt ?? 0,
+      updatesUntil: s.payload?.updatesUntil ?? 0,
+      maxRooms: s.payload?.maxRooms ?? 0,
+      features: s.payload?.features ?? [],
+    };
   }
 
   /**
@@ -1763,6 +1855,13 @@ export class App {
     }
     if (this._updateApplying) {
       throw Object.assign(new Error('更新已经在进行中'), { status: 409, code: 'update_busy' });
+    }
+    // 更新期只挡更新，不影响直播。没有 license 文件的自检/开发环境不拦。
+    if (readLicenseFile(this.dataDir) && this.license && !this.license.canUpdate) {
+      throw Object.assign(new Error('授权里的更新期已过：当前版本可以继续用，但不能装新版本'), {
+        status: 403,
+        code: 'license_update_expired',
+      });
     }
     if (!force && this._activeRoom()?.projection?.state === 'live') {
       throw Object.assign(new Error('直播中更新会重启服务，确实要现在做就再确认一次'), {
@@ -3272,6 +3371,15 @@ export class App {
       },
       /** 访问口令状态：只给"开没开"，哈希之类的东西永远不下发 */
       access: this.access.status(),
+      /** 授权摘要。完整信息（机器码/客户名）走 GET /api/license */
+      license: this.license ? {
+        state: this.license.state,
+        label: licenseStateLabel(this.license.state),
+        canSpeak: this.license.canSpeak,
+        canUpdate: this.license.canUpdate,
+        expiresAt: this.license.payload?.expiresAt ?? 0,
+        updatesUntil: this.license.payload?.updatesUntil ?? 0,
+      } : null,
       /** 上次更新检查结果（可能为 null）。不发请求，只是回显 */
       update: this.update.snapshot(),
       config: {

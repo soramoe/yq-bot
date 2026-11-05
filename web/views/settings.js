@@ -264,6 +264,65 @@ export function createSettings({ dlg, tabs, body, closeBtn, toast, mode = 'plugi
       }),
     );
 
+    /* ── 授权 ── */
+    let lic = null;
+    try {
+      lic = await api.license();
+    } catch {
+      // 授权读不到不影响维护页其它部分；状态区会提示未授权
+    }
+    if (lic) {
+      const fmt = (ms) => (ms ? new Date(ms).toLocaleDateString() : '永久');
+      const machine = lic.machineShort || '';
+      nodes.push(el('div', { class: 'plg-group', text: '授权' }));
+      nodes.push(
+        el('div', { class: 'plg-field' }, {
+          children: [
+            el('div', { class: 'plg-label' }, {
+              children: [
+                el('span', {
+                  class: 'plg-label-text',
+                  text: `${lic.label || lic.state || '未知'}${lic.canSpeak ? '' : '（只读，不能发言）'}`,
+                }),
+              ],
+            }),
+            el('div', { class: 'plg-hint', text: lic.reason || '授权有效，可以正常开播。' }),
+            el('div', {
+              class: 'plg-hint',
+              text: `机器码 ${machine || '—'}  ·  B站 uid ${lic.uid || '未登录'}`,
+            }),
+            el('div', {
+              class: 'plg-hint',
+              text: `版本 ${lic.edition || '—'}  ·  授权到期 ${fmt(lic.expiresAt)}  ·  更新期至 ${fmt(lic.updatesUntil)}`,
+            }),
+            el('div', {
+              class: 'plg-hint',
+              text: '个人版预估参考价约 ¥199（含一年更新）；最终价格与条款以购买页为准，这里只是预估。',
+            }),
+            el('div', { class: 'side-actions' }, {
+              children: [
+                el('button', {
+                  class: 'btn small',
+                  attrs: { type: 'button' },
+                  text: '复制机器码',
+                  on: {
+                    click: async () => {
+                      try {
+                        await navigator.clipboard.writeText(machine);
+                        toast('机器码已复制', 'info');
+                      } catch {
+                        toast('复制失败，请手动选中机器码', 'warn');
+                      }
+                    },
+                  },
+                }),
+              ],
+            }),
+          ],
+        }),
+      );
+    }
+
     /* ── 使用说明 ── */
     nodes.push(el('div', { class: 'plg-group', text: '使用说明' }));
     nodes.push(

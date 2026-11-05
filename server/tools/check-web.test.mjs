@@ -2745,3 +2745,13 @@ test('月报 / 季报：战报面板里有入口，接口也接上了', () => {
   assert.match(reports, /perBox/, '月报要有自己的容器')
   assert.match(apiSrc, /period:\s*\(kind/, 'api.js 要有 period 方法')
 })
+
+test('授权：维护页显示状态、机器码和预估价格，接口也接上了', () => {
+  const settings = readFileSync(join(process.cwd(), 'web/views/settings.js'), 'utf8')
+  const apiSrc = readFileSync(join(process.cwd(), 'web/core/api.js'), 'utf8')
+  assert.match(settings, /api\.license\(\)/, '维护页要读授权状态')
+  assert.match(settings, /复制机器码/, '要能复制机器码去签发授权')
+  assert.match(settings, /预估参考价/, '价格只能写预估值')
+  assert.doesNotMatch(settings, /售价\s*[:：]\s*¥?\d/, '不能写死售价')
+  assert.match(apiSrc, /license:\s*\(\)\s*=>\s*request\('\/api\/license'/, 'api.js 要有 license 方法')
+})
