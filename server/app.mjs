@@ -2644,14 +2644,13 @@ export class App {
     const mate = battle.members.find((m) => m.roomId !== String(ownId));
     if (!mate) return; // 对面还没进 PK 房，等下一轮
 
-    // 先认领这一场，避免下一轮重复拿同一个 pk_id 再排一遍
-    this._pkBattleId = battle.pkId;
-
     const info = await this._fetchRoomByInput(mate.roomId, cookie).catch((err) => {
       this.log.warn(`[PK] 拉对面信息失败：${err.message}`);
       return null;
     });
     const rank = await this._fetchRankSafe(mate.roomId, cookie);
+    // 拿齐了再认领这一场：中途失败还能在下一轮补，别因为一次网络抖动整场静默
+    this._pkBattleId = battle.pkId;
     const top10 = (rank?.items ?? []).slice(0, 10);
     const contribution = top10.reduce((sum, it) => sum + (Number(it.score) || 0), 0);
     const online = Number(info?.online) || 0;
