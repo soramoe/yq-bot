@@ -276,42 +276,48 @@ async function tick(ctx, st) {
   // 名字写进句子里——否则 B站 会把 @ 吞成一个空位。
   // 没有 presence 的宿主（老版本 / 沙盒 / 测试）返回 unknown：
   // 保持旧行为（正文带名字 + 结构化 @），不能因为查不到就把人当离线。
-  const canCheckPresence = ctx.presence && typeof ctx.presence.has === 'function';
-  const online = canCheckPresence
-    ? Boolean(
-        await Promise.resolve(ctx.presence.has(picked.uid)).catch(() => false),
-      )
-    : null;
-
-  const withName = ctx.render(tpl, { 用户: picked.name });
-  const noName = ctx.render(tpl, { 用户: '' }).replace(/^[\s,，、:：]+/, '').trim();
-  // 确认在线：@ 标签自带名字，正文别再重复；确认离线：正文必须自己带名字。
-  const greeting =
-    online === true
-      ? noName || withName
-      : online === false
-        ? tpl.includes('{用户}')
-          ? withName
-          : `${picked.name}，${withName}`
-        : withName;
-
-  const prepared = prepareText(greeting, { max: MAX_TEXT });
-  if (prepared.truncated) {
-    // 自动流程里没人能立刻改文案，抛错没意义；但也不能发半句话。
-    // 只提示一次，避免每轮刷日志。
-    if (!st.warnedLong) {
-      ctx.log.warn(`招呼语超过 ${MAX_TEXT} 字会被截断，已跳过这一轮：把文案改短一点`);
-      st.warnedLong = true;
-    }
-    return;
-  }
-  if (!prepared.text) return;
-
-  st.elapsed = 0;
-  st.cursor = cursor;
+  //
+  // inflight 必须从查榜前就占住：查榜最长几秒，不能让下一轮 tick 又挑一个人。
   st.inflight = true;
-
+  let online = null;
   try {
+    const canCheckPresence = ctx.presence && typeof ctx.presence.has === 'function';
+    if (canCheckPresence) {
+      try {
+        online = Boolean(await ctx.presence.has(picked.uid));
+      } catch {
+        // 查榜失败 / 同步抛错：按「无法确认」发文本，绝不空 @
+        online = false;
+      }
+    }
+
+    const withName = ctx.render(tpl, { 用户: picked.name });
+    const noName = ctx.render(tpl, { 用户: '' }).replace(/^[\s,，、:：]+/, '').trim();
+    // 确认在线：@ 标签自带名字，正文别再重复；确认离线：正文必须自己带名字。
+    const greeting =
+      online === true
+        ? noName || withName
+        : online === false
+          ? tpl.includes('{用户}')
+            ? withName
+            : `${picked.name}，${withName}`
+          : withName;
+
+    const prepared = prepareText(greeting, { max: MAX_TEXT });
+    if (prepared.truncated) {
+      // 自动流程里没人能立刻改文案，抛错没意义；但也不能发半句话。
+      // 只提示一次，避免每轮刷日志。
+      if (!st.warnedLong) {
+        ctx.log.warn(`招呼语超过 ${MAX_TEXT} 字会被截断，已跳过这一轮：把文案改短一点`);
+        st.warnedLong = true;
+      }
+      return;
+    }
+    if (!prepared.text) return;
+
+    st.elapsed = 0;
+    st.cursor = cursor;
+
     // priority 固定 0：主动招呼没有时效性，不该为它挤掉礼物答谢的等待槽位。
     const r = await ctx.say(prepared.text, {
       reason: 'autocall',

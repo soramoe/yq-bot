@@ -435,6 +435,46 @@ test('主动招呼：查在线失败按「无法确认」处理，降级成不�
   assert.equal(ctx.said[0].reply, null)
 })
 
+test('主动招呼：presence.has 同步抛错也按「无法确认」降级，不能把定时器炸掉', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] })
+  const ctx = fakeCtx(cfg({ minAgeSec: 0, templates: ['你好 {用户}'] }), {
+    entries: [['1001', '甲', 60_000]],
+    presence: { has: () => { throw new Error('boom') } },
+  })
+  autocall.onStart(ctx)
+  t.after(() => autocall.onStop(ctx))
+
+  advance(t, 300_000)
+  await flush()
+  assert.equal(ctx.said.length, 1)
+  assert.equal(ctx.said[0].text, '你好 甲')
+  assert.equal(ctx.said[0].reply, null)
+})
+
+test('主动招呼：查在线没回来之前，下一轮不能重复挑人再发一条', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] })
+  let release
+  const gate = new Promise((resolve) => { release = resolve })
+  const ctx = fakeCtx(cfg({ minAgeSec: 0, templates: ['你好 {用户}'] }), {
+    entries: [['1001', '甲', 60_000]],
+    presence: { has: () => gate },
+  })
+  autocall.onStart(ctx)
+  t.after(() => autocall.onStop(ctx))
+
+  advance(t, 300_000)
+  await flush()
+  assert.equal(ctx.said.length, 0, '还卡在查榜，不该先发')
+
+  advance(t, 300_000)
+  await flush()
+  assert.equal(ctx.said.length, 0, '查榜未回时不能重复挑人')
+
+  release(true)
+  await flush()
+  assert.equal(ctx.said.length, 1, '查完只发一条')
+})
+
 test('主动招呼：文案超长时跳过这一轮，不发半句、不刷日志', async (t) => {
   t.mock.timers.enable({ apis: ['setTimeout'] })
   const long = '这是一条明显超过B站弹幕长度上限的招呼语'.repeat(4)
