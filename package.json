@@ -1,6 +1,6 @@
 {
   "name": "yuyue-bot-3",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "private": true,
   "description": "渔情B站直播助手机器人 · B站直播间机器人（事件溯源内核）",
   "type": "module",
