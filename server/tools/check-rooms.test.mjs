@@ -152,7 +152,7 @@ class FakeRunner extends EventEmitter {
 
 /** 一个计数器，保证每次构造的实例都能被找到 */
 const made = []
-function makeApp(t, { rooms = ['100'], activeRoomId = '', cfg = {}, fetchImpl, log, createObs } = {}) {
+function makeApp(t, { rooms = ['100'], activeRoomId = '', cfg = {}, fetchImpl, log, createObs, fetchRoom, fetchRank, resolveRoom } = {}) {
   const dataDir = mkdtempSync(join(tmpdir(), 'yy3-rooms-'))
   if (Object.keys(cfg).length || rooms.length) {
     writeFileSync(
@@ -171,6 +171,9 @@ function makeApp(t, { rooms = ['100'], activeRoomId = '', cfg = {}, fetchImpl, l
     log: log ?? SILENT,
     fetchImpl,
     createObs,
+    fetchRoom,
+    fetchRank,
+    resolveRoom,
     createRunner: (args) => {
       const r = new FakeRunner(args)
       made.push(r)
@@ -2679,4 +2682,118 @@ test('OBS：启动时坏地址整组忽略，不拿半套配置去连', async (t
   await app.start()
   assert.equal(app.obsEnabled, false)
   assert.ok(warns.some((m) => m.includes('OBS 地址无效')))
+})
+
+/* ══════════════════ PK 情报 ══════════════════ */
+
+const pkInfo = (roomId, live, over = {}) => ({
+  roomId,
+  uid: roomId + 9,
+  title: `房间 ${roomId}`,
+  liveState: live ? 'live' : 'off',
+  online: live ? 100 : 0,
+  attention: 2000,
+  areaName: '虚拟主播',
+  ...over,
+})
+
+test('接口：PK 默认关闭，保存后回显，非法房间号按关闭处理', async (t) => {
+  const { app } = makeApp(t, {
+    rooms: ['100'],
+    fetchRoom: async (id) => pkInfo(Number(id) || 100, false),
+    fetchRank: async () => ({ items: [], total: 0 }),
+  })
+  await app.start()
+
+  const routes = buildRoutes(app)
+  const { Readable } = await import('node:stream')
+  const post = async (body) => {
+    const res = fakeRes()
+    const req = Readable.from([Buffer.from(JSON.stringify(body))])
+    req.headers = { 'content-type': 'application/json' }
+    await routes.match('POST', '/api/pk').handler({
+      req,
+      res,
+      url: new URL('http://x/api/pk'),
+      app,
+    })
+    return res
+  }
+
+  const initial = fakeRes()
+  await routes.match('GET', '/api/pk').handler({ res: initial, url: new URL('http://x/api/pk'), app })
+  const before = JSON.parse(initial.body)
+  assert.equal(before.enabled, false)
+  assert.equal(before.roomId, '')
+  assert.equal(before.self, null)
+
+  const saved = await post({ roomId: ' 200 ' })
+  assert.equal(saved.statusCode, 200)
+  assert.equal(JSON.parse(saved.body).roomId, '200')
+  assert.equal(app.pkRoomId, '200')
+
+  const after = fakeRes()
+  await routes.match('GET', '/api/pk').handler({ res: after, url: new URL('http://x/api/pk'), app })
+  assert.equal(JSON.parse(after.body).enabled, true)
+
+  const bad = await post({ roomId: 'abc' })
+  assert.equal(bad.statusCode, 200, '随手填错不该让服务报错，按关闭处理')
+  assert.equal(JSON.parse(bad.body).roomId, '')
+  assert.equal(app.pkRoomId, '')
+
+  const notObject = await post([1, 2])
+  assert.equal(notObject.statusCode, 400)
+})
+
+test('PK：对面开播 / 下播各提醒一次，重复轮询不重复喊', async (t) => {
+  let oppLive = false
+  const { app } = makeApp(t, {
+    rooms: ['100'],
+    cfg: { pkRoomId: '200' },
+    fetchRoom: async (id) => pkInfo(Number(id) === 200 ? 200 : 100, Number(id) === 200 ? oppLive : true),
+    fetchRank: async () => ({ items: [], total: 0 }),
+  })
+
+  const notices = []
+  app.subscribe((m) => {
+    if (m.type === 'notice') notices.push(m.data.text)
+  })
+  await app.start()
+  // 第一次轮询是 start() 里 fire-and-forget 的，等它落地再改对面状态；
+  // 否则会把"首轮"和"开播"混在一起，测不出边沿。
+  for (let i = 0; i < 50 && !app._pk; i++) {
+    await new Promise((r) => setTimeout(r, 5))
+  }
+  assert.ok(app._pk, '首轮 PK 数据应该已经拉到')
+  await app.pollPk()
+
+  oppLive = true
+  await app.pollPk()
+  assert.equal(notices.length, 1)
+  assert.match(notices[0], /【PK】对面开播了/)
+
+  await app.pollPk()
+  assert.equal(notices.length, 1, '一直开着不能每轮都喊')
+
+  oppLive = false
+  await app.pollPk()
+  assert.equal(notices.length, 2)
+  assert.match(notices[1], /【PK】对面下播了/)
+})
+
+test('PK：数据超过 3 分钟时标记 stale，页面据此提示可能过期', async (t) => {
+  const { app } = makeApp(t, {
+    rooms: ['100'],
+    fetchRoom: async (id) => pkInfo(Number(id) || 100, false),
+    fetchRank: async () => ({ items: [], total: 0 }),
+  })
+  await app.start()
+  app._pk = { at: Date.now() - 200_000, self: null, opponent: null, compare: null }
+
+  const routes = buildRoutes(app)
+  const res = fakeRes()
+  await routes.match('GET', '/api/pk').handler({ res, url: new URL('http://x/api/pk'), app })
+  const view = JSON.parse(res.body)
+  assert.equal(view.stale, true)
+  assert.equal(view.at > 0, true)
 })

@@ -22,7 +22,7 @@ export const ONLINE_RANK_PAGE_SIZE = 50;
  * 从接口响应里取出 uid 集合。
  * 兼容 `OnlineRankItem` / `onlineRankItem` 两种大小写（不同版本不一样）。
  *
- * @returns {{ uids: Set<string>, onlineNum: number }}
+ * @returns {{ uids: Set<string>, items: Array<{uid:string,name:string,score:number}>, onlineNum: number }}
  */
 export function onlineRankUids(json) {
   const data = json?.data ?? {};
@@ -32,11 +32,18 @@ export function onlineRankUids(json) {
       ? data.onlineRankItem
       : [];
   const uids = new Set();
+  const items = [];
   for (const it of list) {
     const uid = String(it?.uid ?? '').trim();
-    if (uid && uid !== '0') uids.add(uid);
+    if (!uid || uid === '0') continue;
+    uids.add(uid);
+    items.push({
+      uid,
+      name: String(it?.name ?? it?.uname ?? '').trim(),
+      score: Number(it?.score ?? it?.gold ?? it?.goldCoin ?? 0) || 0,
+    });
   }
-  return { uids, onlineNum: Number(data.onlineNum) || 0 };
+  return { uids, items, onlineNum: Number(data.onlineNum) || 0 };
 }
 
 /**

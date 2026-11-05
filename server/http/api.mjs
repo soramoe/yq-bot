@@ -688,6 +688,34 @@ export function buildRoutes(app) {
     sendJson(res, { ok: true, ...saved });
   });
 
+  /* PK 情报：只看公开房间信息，不连对面弹幕、不发任何内容。 */
+  r.get('/api/pk', ({ res }) => {
+    sendJson(res, { ok: true, ...app.pkView() });
+  });
+
+  r.post('/api/pk', async ({ req, res }) => {
+    const body = await readJson(req);
+    if (body === null || typeof body !== 'object' || Array.isArray(body)) {
+      sendError(res, 400, 'bad_request', '需要 { "roomId": "12345" }（空串或 0 = 关闭）');
+      return;
+    }
+    try {
+      const saved = app.setPkRoom(body.roomId);
+      sendJson(res, { ok: true, ...saved });
+    } catch (err) {
+      if (err?.status) {
+        sendError(res, err.status, err.code ?? 'bad_request', err.message);
+        return;
+      }
+      throw err;
+    }
+  });
+
+  r.post('/api/pk/refresh', async ({ res }) => {
+    const view = await app.pollPk();
+    sendJson(res, { ok: true, ...view });
+  });
+
   /* 付费用户档案。
      与战报同一个数据源（日志重放）、同一套金额口径（电池），
      区别只在于按 uid 跨场次聚合 —— 页面上的名字和数字不能自己再算一遍。 */

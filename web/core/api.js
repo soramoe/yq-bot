@@ -169,6 +169,10 @@ export const api = {
       method: 'POST',
       body: returnBattery === undefined ? { battery } : { battery, returnBattery },
     }),
+  /** PK 情报：打开面板读缓存，刷新才真的去拉 B站 */
+  pk: () => request('/api/pk'),
+  savePk: (roomId) => request('/api/pk', { method: 'POST', body: { roomId } }),
+  refreshPk: () => request('/api/pk/refresh', { method: 'POST', timeout: 30000 }),
   songs: () => request('/api/songs'),
   songAction: (id, action) =>
     request('/api/songs/action', { method: 'POST', body: { id, action } }),

@@ -50,6 +50,9 @@ import {
 import { WEEKLY_WINDOW_DAYS, weeklyNextAt, weeklySummary, weeklyText } from './core/weekly.mjs';
 import { buildReports } from './core/report.mjs';
 import { verifyCookie } from './bili/login.mjs';
+import { fetchRoomInfo, resolveRoomId } from './bili/room.mjs';
+import { fetchOnlineRank } from './bili/rank.mjs';
+import { PK_POLL_SEC, opponentEdge, pkCompare, pkRoomIdOf, pkRoomView, pkStale } from './core/pk.mjs';
 
 const SILENT_LOG = { debug() {}, info() {}, warn() {}, error() {} };
 
@@ -87,7 +90,7 @@ export class App {
    * @param {(args:object)=>import('./room-runner.mjs').RoomRunner} [opts.createRunner]
    *   运行体工厂。默认就是 `new RoomRunner`；测试注入假的，就不必连 B站。
    */
-  constructor({ dataDir, roomId, dryRun = true, pluginsDir = null, log = SILENT_LOG, createRunner = null, createObs = null, fetchImpl = null }) {
+  constructor({ dataDir, roomId, dryRun = true, pluginsDir = null, log = SILENT_LOG, createRunner = null, createObs = null, fetchImpl = null, fetchRoom = fetchRoomInfo, fetchRank = fetchOnlineRank, resolveRoom = resolveRoomId }) {
     this.dataDir = dataDir;
     /** 安装目录（data/ 的上一级）：更新脚本用它替换代码 */
     this.root = resolve(dataDir, '..');
@@ -97,6 +100,10 @@ export class App {
     this.createObs = createObs ?? createObsClient;
     /** webhook 用的 fetch：默认用全局的，自检里注入记录器 */
     this.fetchImpl = fetchImpl;
+    /** PK 情报用的 B站 接口；自检里注入假的，不真的连外部 */
+    this.fetchRoom = fetchRoom;
+    this.fetchRank = fetchRank;
+    this.resolveRoom = resolveRoom;
 
     this.roomId = roomId;
     this.dryRun = dryRun;
@@ -175,6 +182,18 @@ export class App {
      */
     this.weeklyReport = false;
     this._weeklyTimer = null;
+
+    /**
+     * PK 情报：对面房间号。空 = 关闭。
+     *
+     * 只轮询公开的房间信息，不连对面弹幕、不发任何东西。
+     * 对面开播 / 下播时按边沿提醒一次，避免每 60 秒重复喊。
+     */
+    this.pkRoomId = '';
+    this._pk = null;
+    this._pkTimer = null;
+    this._pkBusy = false;
+    this._pkLastOppLive = null;
 
     /**
      * OBS 场景联动：开播切「直播中」、下播切回闲聊场景。
@@ -441,6 +460,9 @@ export class App {
       }
     }
 
+    // PK 情报：只认数字房间号，空 / 0 / 写坏都当没配
+    this.pkRoomId = pkRoomIdOf(cfg.pkRoomId);
+
     mkdirSync(this.dataDir, { recursive: true });
 
     /**
@@ -485,6 +507,7 @@ export class App {
     this._rosterTimer.unref?.();
 
     this._armWeeklyReport();
+    this._armPk();
 
     return this;
   }
@@ -625,6 +648,10 @@ export class App {
       clearTimeout(this._weeklyTimer);
       this._weeklyTimer = null;
     }
+    if (this._pkTimer) {
+      clearInterval(this._pkTimer);
+      this._pkTimer = null;
+    }
     // 所有房间都要停：只停当前那个的话，后台房间的长连会一直挂着，
     // 进程看起来"退出"了却又被 keep-alive 拖住
     const rooms = [...this.rooms.values()];
@@ -685,6 +712,7 @@ export class App {
         pushProvider: this.pushProvider,
         pushTarget: this.pushTarget,
         weeklyReport: this.weeklyReport,
+        pkRoomId: this.pkRoomId,
         obsEnabled: this.obsEnabled,
         obsUrl: this.obsUrl,
         obsPassword: this.obsPassword,
@@ -2288,6 +2316,143 @@ export class App {
       this.log.warn(`[周报] 汇总失败：${err.message}`);
       return { ok: false, error: err.message };
     }
+  }
+
+  /* ────────────────────────── PK 情报 ────────────────────────── */
+
+  /**
+   * 设置对面房间号（空 = 关闭）。
+   *
+   * 只存数字房间号；短号也能填，轮询时会先 resolve 再取信息。
+   */
+  setPkRoom(roomId) {
+    const before = this.pkRoomId;
+    this.pkRoomId = pkRoomIdOf(roomId);
+    this._pk = null;
+    this._pkLastOppLive = null;
+    if (!this._saveConfig()) {
+      this.pkRoomId = before;
+      throw {
+        status: 500,
+        code: 'save_failed',
+        message: '保存 PK 情报设置失败：写不进 data/app.json',
+      };
+    }
+    this._armPk();
+    return { roomId: this.pkRoomId };
+  }
+
+  /** 页面拿到的 PK 快照。没拉过就是空壳，不编数字。 */
+  pkView() {
+    const pk = this._pk;
+    return {
+      enabled: Boolean(this.pkRoomId),
+      roomId: this.pkRoomId,
+      at: Number(pk?.at) || 0,
+      stale: pk ? pkStale(pk.at) : false,
+      self: pk?.self ?? null,
+      opponent: pk?.opponent ?? null,
+      compare: pk?.compare ?? null,
+    };
+  }
+
+  /** 立即拉一次。面板上的「刷新」用这个，不用等 60 秒。 */
+  async pollPk() {
+    return this._pollPk();
+  }
+
+  _armPk() {
+    if (this._pkTimer) {
+      clearInterval(this._pkTimer);
+      this._pkTimer = null;
+    }
+    if (!this.pkRoomId) {
+      this._pk = null;
+      return;
+    }
+    this._pollPk().catch((err) => this.log.warn(`[PK] 首次拉取失败：${err.message}`));
+    this._pkTimer = setInterval(() => {
+      this._pollPk().catch((err) => this.log.warn(`[PK] 拉取失败：${err.message}`));
+    }, PK_POLL_SEC * 1000);
+    this._pkTimer.unref?.();
+  }
+
+  async _pollPk() {
+    if (!this.pkRoomId || this._pkBusy) return this.pkView();
+    this._pkBusy = true;
+    try {
+      const cookie = this.runner?.cookie ?? '';
+      const ownId = this.runner?.realRoomId || this.activeKey || '';
+
+      const ownInfo = await this.fetchRoom(ownId, cookie).catch(() => null);
+      const opp = await this._fetchOpponentInfo(cookie).catch((err) => {
+        this.log.warn(`[PK] 拉对面房间失败：${err.message}`);
+        return null;
+      });
+
+      const [ownRank, oppRank] = await Promise.all([
+        ownId ? this._fetchRankSafe(ownId, cookie) : null,
+        opp?.roomId ? this._fetchRankSafe(opp.roomId, cookie) : null,
+      ]);
+
+      const self = pkRoomView(ownInfo, { rank: ownRank });
+      const opponent = pkRoomView(opp?.info, { rank: oppRank });
+      const compare = pkCompare(self, opponent);
+      this._pk = { at: Date.now(), self, opponent, compare };
+
+      if (opponent) {
+        const prev = this._pkLastOppLive;
+        const edge = opponentEdge(prev === null ? null : { live: prev }, opponent);
+        this._pkLastOppLive = opponent.live;
+        if (edge === 'start') this._notifyPk(true, opponent);
+        else if (edge === 'end') this._notifyPk(false, opponent);
+      }
+      return this.pkView();
+    } finally {
+      this._pkBusy = false;
+    }
+  }
+
+  async _fetchOpponentInfo(cookie) {
+    try {
+      return {
+        info: await this.fetchRoom(this.pkRoomId, cookie),
+        roomId: this.pkRoomId,
+      };
+    } catch {
+      // 用户填了短号：get_info 不认，先换真实房间号再拉
+      const resolved = await this.resolveRoom(this.pkRoomId);
+      return {
+        info: await this.fetchRoom(resolved.roomId, cookie),
+        roomId: String(resolved.roomId),
+      };
+    }
+  }
+
+  async _fetchRankSafe(roomId, cookie) {
+    try {
+      const rank = await this.fetchRank({
+        roomId,
+        cookie,
+        fetchImpl: this.fetchImpl ?? globalThis.fetch,
+      });
+      const items = Array.isArray(rank?.items) ? rank.items : [];
+      return {
+        items,
+        total: items.reduce((sum, it) => sum + (Number(it.score) || 0), 0),
+      };
+    } catch {
+      return null;
+    }
+  }
+
+  _notifyPk(start, opponent) {
+    const text = start
+      ? `【PK】对面开播了：${opponent.title || `房间 ${opponent.roomId}`}`
+      : `【PK】对面下播了：${opponent.title || `房间 ${opponent.roomId}`}`;
+    this.log.info(text);
+    this._emit({ type: 'notice', data: { level: start ? 'warn' : 'info', text } });
+    this._pushText('PK 提醒', text);
   }
 
   /**

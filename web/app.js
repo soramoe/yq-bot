@@ -24,6 +24,7 @@ import { createObsConfig } from './views/obs-config.js';
 import { createPatrons } from './views/patrons.js';
 import { createScQueue } from './views/sc-queue.js';
 import { createSongQueue } from './views/song-queue.js';
+import { createPk } from './views/pk.js';
 import { buildRoomRows, summarizeRooms } from './views/room-overview.js';
 import { installPwa } from './core/pwa.js';
 
@@ -43,6 +44,8 @@ const dom = {
   scBadge: $('#sc-badge'),
   btnSongs: $('#btn-songs'),
   songsBadge: $('#songs-badge'),
+  btnPk: $('#btn-pk'),
+  dlgPk: $('#dlg-pk'),
   dlgReports: $('#dlg-reports'),
   dlgPatrons: $('#dlg-patrons'),
   dlgSc: $('#dlg-sc'),
@@ -119,6 +122,9 @@ const scQueue = createScQueue({ dlg: dom.dlgSc, badge: dom.scBadge, toast });
 // 点歌队列由内核收进 data/songs.json；页面只读，动作走 /api/songs/action
 const songQueue = createSongQueue({ dlg: dom.dlgSongs, badge: dom.songsBadge, api, toast });
 
+// PK 情报：只拉公开房间信息，不读对面弹幕、不自动发言
+const pkPanel = createPk({ dlg: dom.dlgPk, toast });
+
 // 提醒 webhook 的设置面板在「房间总览」里：它的作用域就是"所有房间"，
 // 单独开一页反而会让人以为只对当前这间生效
 const notifyConfig = createNotifyConfig({
@@ -186,6 +192,10 @@ dom.btnSc?.addEventListener('click', () => {
 
 dom.btnSongs?.addEventListener('click', () => {
   songQueue.open();
+});
+
+dom.btnPk?.addEventListener('click', () => {
+  pkPanel.open();
 });
 
 const state = {
@@ -446,6 +456,8 @@ function handle(msg) {
       scQueue.reset();
       // 点歌队列是全局的，但页面显示的"正在播放"要跟新房间的播报对齐
       songQueue.refreshIfOpen();
+      // PK 对比的是"当前房间 vs 对面"，换房必须重拉
+      pkPanel.refreshIfOpen();
       refreshStatus();
       // 换房间：服务端缓冲已经换成新房间的，但 backlog 只在建连时发，
       // 不重连就永远缺着新房间开头那一段

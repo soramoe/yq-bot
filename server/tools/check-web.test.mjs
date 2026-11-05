@@ -2604,3 +2604,27 @@ test('OBS 设置：控件必须真的接到页面与 app.js', () => {
   assert.match(app, /obsConfig\.load\(\)/)
 })
 
+/* ══════════════════ PK 情报 ══════════════════ */
+
+test('PK 情报：按钮、弹窗与接线都在，换房要重拉', () => {
+  const html = readFileSync(join(process.cwd(), 'web/index.html'), 'utf8')
+  const app = readFileSync(join(process.cwd(), 'web/app.js'), 'utf8')
+  const apiSrc = readFileSync(join(process.cwd(), 'web/core/api.js'), 'utf8')
+  const view = readFileSync(join(process.cwd(), 'web/views/pk.js'), 'utf8')
+  const css = readFileSync(join(process.cwd(), 'web/app.css'), 'utf8')
+
+  for (const id of ['btn-pk', 'dlg-pk']) {
+    assert.ok(html.includes(`id="${id}"`), `index.html 里没有 #${id}`)
+  }
+  assert.match(app, /createPk\s*\(/)
+  assert.match(app, /btnPk:\s*\$\('#btn-pk'\)/)
+  assert.match(app, /dlgPk:\s*\$\('#dlg-pk'\)/)
+  assert.match(app, /pkPanel\.open\(\)/)
+  assert.match(app, /pkPanel\.refreshIfOpen\(\)/)
+  assert.match(apiSrc, /\/api\/pk/)
+  assert.match(apiSrc, /\/api\/pk\/refresh/)
+  assert.match(view, /createPk\s*\(/)
+  assert.match(css, /\.pk-grid/)
+  assert.match(css, /\.pk-rank/)
+})
+
