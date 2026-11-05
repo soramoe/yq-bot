@@ -18,13 +18,22 @@ const sc = (text, extra = {}) => ({
   payload: { uid: '42', uname: '小明', text, yuan: 30, ...extra },
 });
 
-test('点歌：只认 SC 开头的「点歌」，别的话不收', () => {
+const dm = (text, extra = {}) => ({
+  seq: 2,
+  ts: 1_700_000_000_001,
+  type: 'DANMAKU',
+  payload: { uid: '43', uname: '小红', text, ...extra },
+});
+
+test('点歌：弹幕或 SC 开头的「点歌」，别的话不收', () => {
   assert.deepEqual(parseSongRequest(sc('点歌 晴天')), { song: '晴天' });
   assert.deepEqual(parseSongRequest(sc('点歌：晴天')), { song: '晴天' });
-  assert.deepEqual(parseSongRequest(sc('点歌，晴天')), { song: '晴天' });
-  assert.equal(parseSongRequest(sc('想听晴天')), null);
-  assert.equal(parseSongRequest(sc('点歌')), null);
-  assert.equal(parseSongRequest({ type: 'DANMAKU', payload: { text: '点歌 晴天' } }), null);
+  assert.deepEqual(parseSongRequest(dm('点歌 晴天')), { song: '晴天' });
+  assert.deepEqual(parseSongRequest(dm('点歌，晴天')), { song: '晴天' });
+  assert.equal(parseSongRequest(dm('想听晴天')), null);
+  assert.equal(parseSongRequest(dm('点歌')), null);
+  assert.equal(parseSongRequest({ type: 'DANMAKU', payload: null }), null);
+  assert.equal(parseSongRequest({ type: 'ENTER', payload: { text: '点歌 晴天' } }), null);
   assert.equal(parseSongRequest({ type: 'SUPER_CHAT', payload: null }), null);
 });
 
@@ -40,6 +49,15 @@ test('点歌：名字回落顺序与金额口径', () => {
   assert.equal(songNameOf({ uid: '7' }), 'uid 7');
   assert.equal(songNameOf({ uid: '0' }), '匿名观众');
   assert.equal(songNameOf({}), '匿名观众');
+});
+
+test('点歌：弹幕点歌没有金额，名字和 uid 照常记', () => {
+  const items = [];
+  const item = pushSong(items, { song: '晴天' }, dm('点歌 晴天'));
+  assert.ok(item);
+  assert.equal(item.yuan, 0);
+  assert.equal(item.name, '小红');
+  assert.equal(item.uid, '43');
 });
 
 test('点歌：进队列、位置、重复不重复加', () => {

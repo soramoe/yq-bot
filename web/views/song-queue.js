@@ -1,7 +1,7 @@
 /**
  * 点歌队列面板。
  *
- * 队列由内核在 SC 事件里收（`data/songs.json`），这里只做两件事：
+ * 队列由内核在弹幕 / SC 事件里收（`data/songs.json`），这里只做两件事：
  * 展示，以及把「播放 / 完成 / 跳过」这些人工决定发回服务端。
  *
  * 徽标数字是"还在排队"的条数，不含播放中的那条 —— 播放中的已经在
@@ -26,7 +26,7 @@ export function createSongQueue({ dlg, badge = null, api, toast = () => {} }) {
     class: 'song-head',
     children: [
       el('h4', { text: '点歌队列' }),
-      el('span', { class: 'song-sub', text: 'SC 里发「点歌 歌名」就会进来；队列跨重启保留' }),
+      el('span', { class: 'song-sub', text: '弹幕发「点歌 歌名」就会进来；队列跨重启保留' }),
       el('span', { class: 'song-spacer' }),
       el('button', { class: 'btn', type: 'button', text: '关闭', on: { click: () => dlg.close() } }),
     ],
@@ -56,7 +56,7 @@ export function createSongQueue({ dlg, badge = null, api, toast = () => {} }) {
           class: 'song-empty',
           children: [
             el('div', { text: '还没有人点歌' }),
-            el('div', { class: 'song-empty-sub', text: '观众发一条「点歌 歌名」的醒目留言，就会出现在这里。' }),
+            el('div', { class: 'song-empty-sub', text: '观众发一条「点歌 歌名」的弹幕，就会出现在这里。' }),
           ],
         }),
       ]);
@@ -75,7 +75,10 @@ export function createSongQueue({ dlg, badge = null, api, toast = () => {} }) {
               class: 'song-main',
               children: [
                 el('div', { class: 'song-title', text: it.song }),
-                el('div', { class: 'song-meta', text: `${it.name || '匿名观众'} · ¥${yuanText(it.yuan)}` }),
+                el('div', {
+                  class: 'song-meta',
+                  text: `${it.name || '匿名观众'}${it.yuan > 0 ? ` · ¥${yuanText(it.yuan)}` : ' · 弹幕点歌'}`,
+                }),
               ],
             }),
             el('span', {

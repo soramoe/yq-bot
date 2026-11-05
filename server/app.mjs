@@ -870,7 +870,7 @@ export class App {
   /**
    * 一条 SC 进来时尝试收进点歌队列。
    *
-   * 只处理当前房间：后台房间的 SC 如果也往同一个队列塞，页面上会突然多出
+   * 只处理当前房间：后台房间的弹幕如果也往同一个队列塞，页面上会突然多出
    * 一首没听见点歌过程的歌。拦截发生在"是否活跃"这一层，而不是解析之前。
    */
   _enqueueSong(room, rec) {
@@ -899,6 +899,8 @@ export class App {
     Promise.resolve(room.runner?.gate?.say?.({
       roomId: room.runner?.realRoomId ?? room.key,
       text,
+      // 点歌的人刚发过弹幕，一定还在房间里，@ 挂在播报上才有意义。
+      reply: { uid: item.uid, uname: item.name },
       reason: 'song_queue',
       source: 'songs',
       priority: 1,

@@ -1988,41 +1988,44 @@ test('回访提醒：0 = 关闭；改门槛后旧索引作废', async (t) => {
   assert.equal(cfg.patronReturnBattery, 500)
 })
 
-test('点歌：SC 里「点歌 xxx」进队列并播报，别的消息不收', async (t) => {
+test('点歌：弹幕「点歌 xxx」进队列并播报，SC 同样兼容，别的消息不收', async (t) => {
   const { app, dataDir } = makeApp(t, { rooms: ['100'] })
   await app.start()
   const runner = app.runner
   const broadcasts = []
   app.subscribe((msg) => { if (msg.type === 'songs') broadcasts.push(msg.data) })
 
-  runner.push({ seq: 1, ts: 1, type: 'SUPER_CHAT', payload: { uid: '7', uname: '甲', text: '点歌 晴天', yuan: 30 } })
+  runner.push({ seq: 1, ts: 1, type: 'DANMAKU', payload: { uid: '7', uname: '甲', text: '点歌 晴天' } })
   const v = app.songsView()
   assert.equal(v.items.length, 1)
   assert.equal(v.current.song, '晴天')
+  assert.equal(v.current.yuan, 0, '弹幕点歌没有金额')
   assert.equal(v.queued, 1)
   assert.equal(runner.gate.said.length, 1)
   assert.equal(runner.gate.said[0].text, '已点歌：晴天（下一首）')
+  assert.deepEqual(runner.gate.said[0].reply, { uid: '7', uname: '甲' }, '要 @ 点歌的人')
   assert.equal(broadcasts.at(-1).items.length, 1)
 
   runner.push({ seq: 2, ts: 2, type: 'SUPER_CHAT', payload: { uid: '8', uname: '乙', text: '主播好', yuan: 30 } })
   runner.push({ seq: 3, ts: 3, type: 'DANMAKU', payload: { uid: '9', uname: '丙', text: '点歌 后来' } })
-  assert.equal(app.songsView().items.length, 1, '非点歌 SC / 普通弹幕都不进队列')
+  runner.push({ seq: 4, ts: 4, type: 'SUPER_CHAT', payload: { uid: '8', uname: '乙', text: '点歌 稻香', yuan: 30 } })
+  assert.equal(app.songsView().items.length, 3, '非点歌 SC 不收；弹幕和 SC 的点歌都收')
 
   // 同一个人点同一首、还在队里：不重复加、也不重复播报
-  runner.push({ seq: 4, ts: 4, type: 'SUPER_CHAT', payload: { uid: '7', uname: '甲', text: '点歌 晴天', yuan: 30 } })
-  assert.equal(app.songsView().items.length, 1)
-  assert.equal(runner.gate.said.length, 1)
+  runner.push({ seq: 5, ts: 5, type: 'DANMAKU', payload: { uid: '7', uname: '甲', text: '点歌 晴天' } })
+  assert.equal(app.songsView().items.length, 3)
+  assert.equal(runner.gate.said.length, 3)
 
   const saved = JSON.parse(readFileSync(join(dataDir, 'songs.json'), 'utf8'))
-  assert.equal(saved.items.length, 1)
+  assert.equal(saved.items.length, 3)
   assert.equal(saved.items[0].song, '晴天')
 })
 
-test('点歌：后台房间的 SC 不进当前队列', async (t) => {
+test('点歌：后台房间的弹幕不进当前队列', async (t) => {
   const { app } = makeApp(t, { rooms: ['100', '200'], activeRoomId: '100' })
   await app.start()
   const bg = app.rooms.get('200').runner
-  bg.push({ seq: 1, ts: 1, type: 'SUPER_CHAT', payload: { uid: '7', uname: '甲', text: '点歌 晴天', yuan: 30 } })
+  bg.push({ seq: 1, ts: 1, type: 'DANMAKU', payload: { uid: '7', uname: '甲', text: '点歌 晴天' } })
   assert.equal(app.songsView().items.length, 0)
   assert.equal(bg.gate.said.length, 0, '后台房间也不该播报')
 })
