@@ -520,8 +520,8 @@ test('更新：镜像下载把地址换到镜像，仍按清单的 sha256 / size
           ok: true,
           status: 200,
           json: async () => ({
-            version: '0.2.4',
-            download: 'https://github.com/o/r/releases/download/v0.2.4/yuyue3-0.2.4.tar.gz',
+            version: '9.9.9',
+            download: 'https://github.com/o/r/releases/download/v9.9.9/yuyue3-9.9.9.tar.gz',
             sha256: sha,
             size: pkg.length,
           }),
@@ -547,7 +547,7 @@ test('更新：镜像下载把地址换到镜像，仍按清单的 sha256 / size
   const d = await app.downloadUpdate();
   assert.equal(
     calls.at(-1),
-    'https://mirror.example.com/yq/yuyue3-0.2.4.tar.gz',
+    'https://mirror.example.com/yq/yuyue3-9.9.9.tar.gz',
     '下载应该走镜像里的同名文件'
   );
   assert.equal(d.bytes, pkg.length);

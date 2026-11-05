@@ -37,6 +37,12 @@ if not exist "data" md "data"
 echo [OK] Runtime folders are ready: logs\, data\
 
 echo.
+node -e "require('ws')" >nul 2>&1
+if not errorlevel 1 (
+  echo [OK] ws is bundled; skipping npm install.
+  goto :DEPS_OK
+)
+
 echo [STEP] Installing dependencies ^(only ws^)...
 call npm install --omit=dev --no-audit --no-fund
 if errorlevel 1 (
@@ -52,6 +58,7 @@ if errorlevel 1 (
   exit /b 1
 )
 
+:DEPS_OK
 echo.
 echo [DONE] Environment is ready.
 echo        Start:  scripts\start.bat
