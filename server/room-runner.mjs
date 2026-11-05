@@ -131,6 +131,12 @@ export class RoomRunner extends EventEmitter {
     this._speakers = new Map();
 
     /**
+     * PK 开场播报期间压住其它插件发言的时间点。
+     * 到点之前，PluginHost 的 say 一律直接跳过（不排队，避免同时涌出来）。
+     */
+    this._speechHoldUntil = 0;
+
+    /**
      * 高能榜缓存：只用来**确认**某个人此刻在线，不是完整在线名单。
      * 榜上只有消费靠前的人；没命中不能反推"已离开"。
      */
@@ -220,7 +226,14 @@ export class RoomRunner extends EventEmitter {
     this.host = new PluginHost({
       dir: this.pluginsDir,
       log: this.log,
-      say: (args) => this.gate.say({ roomId: this.realRoomId || this.inputRoomId, ...args }),
+      say: (args) => {
+        // PK 开场播报的几秒里，进场欢迎/关键词/定时问候先跳过：
+        // 不是排队延后（会同时涌出来），是这一轮干脆不说。
+        if (Date.now() < this._speechHoldUntil && args?.reason !== 'pk_brief') {
+          return { ok: false, skipped: 'hold', text: args?.text ?? '' };
+        }
+        return this.gate.say({ roomId: this.realRoomId || this.inputRoomId, ...args });
+      },
       getState: () => this.projection?.snapshot() ?? null,
       configs: this.pluginConfigs,
       enabled: this.pluginEnabled,
@@ -528,6 +541,12 @@ export class RoomRunner extends EventEmitter {
     }
     out.sort((a, b) => b.lastSpokeAt - a.lastSpokeAt);
     return out.slice(0, cap);
+  }
+
+  /** PK 开场播报期间压住插件发言；到点自动恢复。 */
+  holdSpeech(ms) {
+    const until = Date.now() + Math.max(0, Number(ms) || 0);
+    if (until > this._speechHoldUntil) this._speechHoldUntil = until;
   }
 
   /**

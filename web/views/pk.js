@@ -128,8 +128,38 @@ export function createPk({ dlg, toast = () => {} }) {
     text: '每 60 秒自动拉一次对面房间；对面开播 / 下播时会提醒一次。',
   });
 
+  const briefBox = el('input', { class: 'pk-check', attrs: { type: 'checkbox' } });
+  const threshold = el('input', {
+    class: 'pk-num',
+    attrs: { type: 'number', min: '0', step: '100', inputmode: 'numeric' },
+  });
+  const strongInput = el('input', {
+    class: 'pk-text',
+    attrs: { type: 'text', maxlength: '80', placeholder: '对方很强时说什么' },
+  });
+  const weakInput = el('input', {
+    class: 'pk-text',
+    attrs: { type: 'text', maxlength: '80', placeholder: '对方一般时说什么' },
+  });
+  const briefRow = el('div', { class: 'pk-brief' }, {
+    children: [
+      el('label', { class: 'pk-brief-line' }, {
+        children: [briefBox, el('span', { text: '开场 PK 时自动播报对面情报' })],
+      }),
+      el('label', { class: 'pk-brief-line' }, {
+        children: [el('span', { text: '榜十贡献满' }), threshold, el('span', { text: '算强（0 = 永远算一般）' })],
+      }),
+      el('label', { class: 'pk-brief-line' }, {
+        children: [el('span', { text: '强：' }), strongInput],
+      }),
+      el('label', { class: 'pk-brief-line' }, {
+        children: [el('span', { text: '弱：' }), weakInput],
+      }),
+    ],
+  });
+
   replaceChildren(dlg, [
-    el('div', { class: 'pk-wrap' }, { children: [head, grid, compare, foot] }),
+    el('div', { class: 'pk-wrap' }, { children: [head, grid, compare, briefRow, foot] }),
   ]);
 
   dlg.addEventListener('close', () => stopAuto());
@@ -150,6 +180,11 @@ export function createPk({ dlg, toast = () => {} }) {
 
   function render(view) {
     input.value = view?.roomId || '';
+    const brief = view?.brief ?? {};
+    briefBox.checked = brief.enabled === true;
+    threshold.value = String(brief.threshold ?? 1000);
+    strongInput.value = brief.strong || '';
+    weakInput.value = brief.weak || '';
     foot.textContent = view?.stale
       ? '数据超过 3 分钟没更新了，可能不是现状；点「刷新」再拉一次。'
       : '每 60 秒自动拉一次对面房间；对面开播 / 下播时会提醒一次。';
@@ -191,6 +226,7 @@ export function createPk({ dlg, toast = () => {} }) {
     } catch (err) {
       if (mine === seq) toast(`PK 情报拉不到：${err.message}`, 'error');
     } finally {
+      // busy 是单飞锁，不管 seq 有没有变都要放开，否则一次慢请求会把面板永久锁死
       busy = false;
       refreshBtn.disabled = false;
     }
@@ -208,11 +244,26 @@ export function createPk({ dlg, toast = () => {} }) {
 
   async function save() {
     const raw = input.value.trim();
+    const wantThreshold = Number(threshold.value);
+    if (!Number.isInteger(wantThreshold) || wantThreshold < 0) {
+      toast('强敌阈值要写成 0 或正整数', 'error');
+      return;
+    }
+    if (!strongInput.value.trim() || !weakInput.value.trim()) {
+      toast('强弱两段文案都要填', 'error');
+      return;
+    }
     saveBtn.disabled = true;
     try {
-      const saved = await api.savePk(raw);
-      toast(saved.roomId ? '已保存 PK 房间，正在拉对面数据' : '已关闭 PK 情报');
-      render({ enabled: Boolean(saved.roomId), roomId: saved.roomId, self: null, opponent: null, compare: null });
+      const saved = await api.savePk({
+        roomId: raw,
+        enabled: briefBox.checked,
+        threshold: wantThreshold,
+        strong: strongInput.value.trim(),
+        weak: weakInput.value.trim(),
+      });
+      toast(raw ? '已保存 PK 房间与开场播报' : '已关闭 PK 情报（开场播报设置已保留）');
+      render(saved);
       if (saved.roomId) refresh();
     } catch (err) {
       toast(`保存 PK 设置失败：${err.message}`, 'error');

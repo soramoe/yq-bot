@@ -738,12 +738,25 @@ export function buildRoutes(app) {
   r.post('/api/pk', async ({ req, res }) => {
     const body = await readJson(req);
     if (body === null || typeof body !== 'object' || Array.isArray(body)) {
-      sendError(res, 400, 'bad_request', '需要 { "roomId": "12345" }（空串或 0 = 关闭）');
+      sendError(
+        res,
+        400,
+        'bad_request',
+        '需要 { "roomId": "12345", "brief": true, "threshold": 1000 }（roomId 空串或 0 = 关闭）',
+      );
       return;
     }
     try {
-      const saved = app.setPkRoom(body.roomId);
-      sendJson(res, { ok: true, ...saved });
+      if ('roomId' in body) app.setPkRoom(body.roomId);
+      if (['enabled', 'threshold', 'strong', 'weak'].some((k) => k in body)) {
+        app.setPkBrief({
+          enabled: body.enabled,
+          threshold: body.threshold,
+          strong: body.strong,
+          weak: body.weak,
+        });
+      }
+      sendJson(res, { ok: true, ...app.pkView() });
     } catch (err) {
       if (err?.status) {
         sendError(res, err.status, err.code ?? 'bad_request', err.message);

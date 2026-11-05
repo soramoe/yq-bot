@@ -2420,12 +2420,44 @@ dialog#dlg-reports {
   font-size: var(--fs-xs);
 }
 
+.pk-brief {
+  display: grid;
+  gap: var(--s1);
+  padding: var(--s2) var(--s3);
+  border: 1px dashed var(--line);
+  border-radius: var(--r2);
+}
+.pk-brief-line {
+  display: flex;
+  align-items: center;
+  gap: var(--s2);
+  color: var(--text-2);
+  font-size: var(--fs-xs);
+  flex-wrap: wrap;
+}
+.pk-check {
+  margin: 0;
+}
+.pk-num {
+  width: 92px;
+}
+.pk-text {
+  flex: 1;
+  min-width: 160px;
+}
+
 @media (max-width: 680px) {
   .pk-grid {
     grid-template-columns: minmax(0, 1fr);
   }
   .pk-input {
     width: 100%;
+  }
+  .pk-brief-line {
+    align-items: stretch;
+  }
+  .pk-text {
+    min-width: 0;
   }
 }
 

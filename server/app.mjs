@@ -52,6 +52,7 @@ import { buildReports } from './core/report.mjs';
 import { verifyCookie } from './bili/login.mjs';
 import { fetchRoomInfo, resolveRoomId } from './bili/room.mjs';
 import { fetchOnlineRank } from './bili/rank.mjs';
+import { fetchPkBattle } from './bili/pk-battle.mjs';
 import { PK_POLL_SEC, opponentEdge, pkCompare, pkRoomIdOf, pkRoomView, pkStale } from './core/pk.mjs';
 import { healthView } from './core/health.mjs';
 
@@ -91,7 +92,7 @@ export class App {
    * @param {(args:object)=>import('./room-runner.mjs').RoomRunner} [opts.createRunner]
    *   运行体工厂。默认就是 `new RoomRunner`；测试注入假的，就不必连 B站。
    */
-  constructor({ dataDir, roomId, dryRun = true, pluginsDir = null, log = SILENT_LOG, createRunner = null, createObs = null, fetchImpl = null, fetchRoom = fetchRoomInfo, fetchRank = fetchOnlineRank, resolveRoom = resolveRoomId }) {
+  constructor({ dataDir, roomId, dryRun = true, pluginsDir = null, log = SILENT_LOG, createRunner = null, createObs = null, fetchImpl = null, fetchRoom = fetchRoomInfo, fetchRank = fetchOnlineRank, resolveRoom = resolveRoomId, fetchPkBattle: fetchPkBattleImpl = fetchPkBattle, pkBriefGapMs = 2500 }) {
     this.dataDir = dataDir;
     /** 安装目录（data/ 的上一级）：更新脚本用它替换代码 */
     this.root = resolve(dataDir, '..');
@@ -105,6 +106,9 @@ export class App {
     this.fetchRoom = fetchRoom;
     this.fetchRank = fetchRank;
     this.resolveRoom = resolveRoom;
+    this.fetchPkBattle = fetchPkBattleImpl;
+    /** 四段开场播报之间的停顿；自检里设 0，不等真实时间 */
+    this.pkBriefGapMs = Math.max(0, Number(pkBriefGapMs) || 0);
 
     this.roomId = roomId;
     this.dryRun = dryRun;
@@ -195,6 +199,16 @@ export class App {
     this._pkTimer = null;
     this._pkBusy = false;
     this._pkLastOppLive = null;
+
+    /**
+     * PK 开场播报：检测到新一场 PK 时，分段播对面名字 / 人数 / 榜十贡献 / 强弱。
+     * `_pkBattleId` 记住报过的那一场，同一场只报一次；PK 结束后清空。
+     */
+    this.pkBrief = true;
+    this.pkBriefThreshold = 1000;
+    this.pkBriefStrong = '对方看起来很强，谨慎对待';
+    this.pkBriefWeak = '对方看起来一般，但也要全力以赴';
+    this._pkBattleId = '';
 
     /**
      * OBS 场景联动：开播切「直播中」、下播切回闲聊场景。
@@ -478,6 +492,21 @@ export class App {
     // PK 情报：只认数字房间号，空 / 0 / 写坏都当没配
     this.pkRoomId = pkRoomIdOf(cfg.pkRoomId);
 
+    // PK 开场播报：开关、强敌阈值、两段可改文案
+    if (typeof cfg.pkBrief === 'boolean') this.pkBrief = cfg.pkBrief;
+    const briefThreshold = Number(cfg.pkBriefThreshold);
+    if (Number.isInteger(briefThreshold) && briefThreshold >= 0 && briefThreshold <= 1_000_000_000) {
+      this.pkBriefThreshold = briefThreshold;
+    } else if (cfg.pkBriefThreshold !== undefined) {
+      this.log.warn('[配置] data/app.json 里的 pkBriefThreshold 无效（0..1000000000 的整数），已忽略');
+    }
+    if (typeof cfg.pkBriefStrong === 'string' && cfg.pkBriefStrong.trim()) {
+      this.pkBriefStrong = cfg.pkBriefStrong.trim().slice(0, 80);
+    }
+    if (typeof cfg.pkBriefWeak === 'string' && cfg.pkBriefWeak.trim()) {
+      this.pkBriefWeak = cfg.pkBriefWeak.trim().slice(0, 80);
+    }
+
     mkdirSync(this.dataDir, { recursive: true });
 
     /**
@@ -745,6 +774,10 @@ export class App {
         weeklyReport: this.weeklyReport,
         healthAlert: this.healthAlert,
         pkRoomId: this.pkRoomId,
+        pkBrief: this.pkBrief,
+        pkBriefThreshold: this.pkBriefThreshold,
+        pkBriefStrong: this.pkBriefStrong,
+        pkBriefWeak: this.pkBriefWeak,
         obsEnabled: this.obsEnabled,
         obsUrl: this.obsUrl,
         obsPassword: this.obsPassword,
@@ -2389,7 +2422,69 @@ export class App {
       self: pk?.self ?? null,
       opponent: pk?.opponent ?? null,
       compare: pk?.compare ?? null,
+      brief: {
+        enabled: this.pkBrief === true,
+        threshold: this.pkBriefThreshold,
+        strong: this.pkBriefStrong,
+        weak: this.pkBriefWeak,
+      },
     };
+  }
+
+  /**
+   * 保存 PK 开场播报设置。
+   *
+   * 开关、阈值、两段文案一起写；任何一项不合法整组拒绝，
+   * 避免页面显示保存成功、实际只有一半生效。
+   */
+  setPkBrief({ enabled, threshold, strong, weak } = {}) {
+    const before = {
+      enabled: this.pkBrief,
+      threshold: this.pkBriefThreshold,
+      strong: this.pkBriefStrong,
+      weak: this.pkBriefWeak,
+    };
+    if (enabled !== undefined && typeof enabled !== 'boolean') {
+      throw { status: 400, code: 'bad_pk_brief', message: 'PK 开场播报开关只能是 true / false' };
+    }
+    if (threshold !== undefined) {
+      const n = Number(threshold);
+      if (!Number.isInteger(n) || n < 0 || n > 1_000_000_000) {
+        throw {
+          status: 400,
+          code: 'bad_pk_brief',
+          message: '强敌阈值要写成 0..1000000000 的整数（0 = 永远算一般）',
+        };
+      }
+      this.pkBriefThreshold = n;
+    }
+    for (const [key, value] of [
+      ['strong', strong],
+      ['weak', weak],
+    ]) {
+      if (value === undefined) continue;
+      if (typeof value !== 'string') {
+        throw { status: 400, code: 'bad_pk_brief', message: 'PK 强弱文案必须是字符串' };
+      }
+      const text = value.trim().slice(0, 80);
+      if (!text) throw { status: 400, code: 'bad_pk_brief', message: 'PK 强弱文案不能为空' };
+      if (key === 'strong') this.pkBriefStrong = text;
+      else this.pkBriefWeak = text;
+    }
+    if (enabled !== undefined) this.pkBrief = enabled;
+
+    if (!this._saveConfig()) {
+      this.pkBrief = before.enabled;
+      this.pkBriefThreshold = before.threshold;
+      this.pkBriefStrong = before.strong;
+      this.pkBriefWeak = before.weak;
+      throw {
+        status: 500,
+        code: 'save_failed',
+        message: '保存 PK 开场播报设置失败：写不进 data/app.json',
+      };
+    }
+    return this.pkView().brief;
   }
 
   /** 立即拉一次。面板上的「刷新」用这个，不用等 60 秒。 */
@@ -2437,8 +2532,9 @@ export class App {
     }
     if (!this.pkRoomId) {
       this._pk = null;
-      return;
+      this._pkLastOppLive = null;
     }
+    // 即使没配「对面房间」，也要轮询当前房间有没有开 PK（随机匹配同样要播）
     this._pollPk().catch((err) => this.log.warn(`[PK] 首次拉取失败：${err.message}`));
     this._pkTimer = setInterval(() => {
       this._pollPk().catch((err) => this.log.warn(`[PK] 拉取失败：${err.message}`));
@@ -2447,13 +2543,29 @@ export class App {
   }
 
   async _pollPk() {
-    if (!this.pkRoomId || this._pkBusy) return this.pkView();
+    if (this._pkBusy) return this.pkView();
+    const ownId = this.runner?.realRoomId || this.activeKey || '';
+    if (!ownId) return this.pkView();
     this._pkBusy = true;
     try {
       const cookie = this.runner?.cookie ?? '';
-      const ownId = this.runner?.realRoomId || this.activeKey || '';
-
       const ownInfo = await this.fetchRoom(ownId, cookie).catch(() => null);
+
+      // PK 开场：不看用户有没有配「对面房间」，只看当前房间有没有在打
+      let battle = null;
+      try {
+        battle = await this.fetchPkBattle({
+          roomId: ownId,
+          cookie,
+          fetchImpl: this.fetchImpl ?? globalThis.fetch,
+        });
+      } catch (err) {
+        this.log.debug?.(`[PK] 拉 PK 状态失败：${err.message}`);
+      }
+      await this._maybeBriefPk(battle, ownId, cookie);
+
+      if (!this.pkRoomId) return this.pkView();
+
       const opp = await this._fetchOpponentInfo(cookie).catch((err) => {
         this.log.warn(`[PK] 拉对面房间失败：${err.message}`);
         return null;
@@ -2512,6 +2624,92 @@ export class App {
       };
     } catch {
       return null;
+    }
+  }
+
+  /**
+   * PK 开场四段播报：对面名字 → 对面人数 → 对面日榜前十贡献 → 强/弱。
+   *
+   * 只在检测到**新的一场 PK** 时播一次；同一 pk_id 不重复。
+   * 播之前先占住发言队列，四段之间留一点间隔，期间其它插件播报直接跳过。
+   */
+  async _maybeBriefPk(battle, ownId, cookie) {
+    if (!battle?.active) {
+      // PK 结束：下一场是新 pk_id，要重新播
+      if (this._pkBattleId) this._pkBattleId = '';
+      return;
+    }
+    if (!this.pkBrief || !battle.pkId || battle.pkId === this._pkBattleId) return;
+
+    const mate = battle.members.find((m) => m.roomId !== String(ownId));
+    if (!mate) return; // 对面还没进 PK 房，等下一轮
+
+    // 先认领这一场，避免下一轮重复拿同一个 pk_id 再排一遍
+    this._pkBattleId = battle.pkId;
+
+    const info = await this._fetchRoomByInput(mate.roomId, cookie).catch((err) => {
+      this.log.warn(`[PK] 拉对面信息失败：${err.message}`);
+      return null;
+    });
+    const rank = await this._fetchRankSafe(mate.roomId, cookie);
+    const top10 = (rank?.items ?? []).slice(0, 10);
+    const contribution = top10.reduce((sum, it) => sum + (Number(it.score) || 0), 0);
+    const online = Number(info?.online) || 0;
+
+    const strong = this.pkBriefThreshold > 0 && contribution >= this.pkBriefThreshold;
+    const texts = [
+      `对面是：${mate.name}`,
+      online > 0 ? `对面直播间 ${online} 人` : '对面直播间人数暂时看不到',
+      `对面日榜前十贡献 ${contribution}`,
+      strong ? this.pkBriefStrong : this.pkBriefWeak,
+    ];
+
+    const runner = this.runner;
+    if (!runner?.gate?.say) {
+      this.log.warn('[PK] 没有可用的发言通道，开场播报跳过');
+      return;
+    }
+
+    const gap = this.pkBriefGapMs;
+    runner.holdSpeech?.(texts.length * gap + 4000);
+    this._emit({
+      type: 'notice',
+      data: {
+        level: strong ? 'warn' : 'info',
+        text: `【PK】对面 ${mate.name}：${online} 人 · 榜十 ${contribution}${strong ? ' · 强' : ''}`,
+      },
+    });
+
+    for (let i = 0; i < texts.length; i += 1) {
+      const text = texts[i];
+      try {
+        const out = await runner.gate.say({
+          roomId: ownId,
+          text,
+          reason: 'pk_brief',
+          source: 'pk',
+          priority: 2,
+          maxWaitMs: 8000,
+        });
+        if (!out?.ok) this.log.warn(`[PK] 开场播报被跳过：${out?.skipped || '未知原因'}`);
+      } catch (err) {
+        this.log.warn(`[PK] 开场播报失败：${err.message}`);
+      }
+      if (i < texts.length - 1 && gap > 0) {
+        await new Promise((r) => setTimeout(r, gap));
+      }
+    }
+    this.log.info(`[PK] 开场播报：${texts.join(' / ')}`);
+  }
+
+  /** 短号也能拉：先按原值取，失败再 resolve。 */
+  async _fetchRoomByInput(input, cookie) {
+    const id = String(input ?? '').trim();
+    try {
+      return await this.fetchRoom(id, cookie);
+    } catch {
+      const resolved = await this.resolveRoom(id);
+      return this.fetchRoom(resolved.roomId, cookie);
     }
   }
 

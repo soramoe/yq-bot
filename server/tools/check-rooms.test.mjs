@@ -135,6 +135,10 @@ class FakeRunner extends EventEmitter {
     this.started = false
   }
 
+  holdSpeech(ms) {
+    this.heldFor = ms
+  }
+
   stats() {
     return { state: 'live', danmaku: this.danmaku, sessionId: `s-${this.inputRoomId}` }
   }
@@ -152,7 +156,7 @@ class FakeRunner extends EventEmitter {
 
 /** 一个计数器，保证每次构造的实例都能被找到 */
 const made = []
-function makeApp(t, { rooms = ['100'], activeRoomId = '', cfg = {}, fetchImpl, log, createObs, fetchRoom, fetchRank, resolveRoom } = {}) {
+function makeApp(t, { rooms = ['100'], activeRoomId = '', cfg = {}, fetchImpl, log, createObs, fetchRoom, fetchRank, resolveRoom, fetchPkBattle, pkBriefGapMs = 0 } = {}) {
   const dataDir = mkdtempSync(join(tmpdir(), 'yy3-rooms-'))
   if (Object.keys(cfg).length || rooms.length) {
     writeFileSync(
@@ -174,6 +178,8 @@ function makeApp(t, { rooms = ['100'], activeRoomId = '', cfg = {}, fetchImpl, l
     fetchRoom,
     fetchRank,
     resolveRoom,
+    fetchPkBattle: fetchPkBattle ?? (async () => ({ active: false, pkId: '', members: [] })),
+    pkBriefGapMs,
     createRunner: (args) => {
       const r = new FakeRunner(args)
       made.push(r)
@@ -2851,4 +2857,58 @@ test('健康：整组关掉后不再自动提醒，但接口照样能看', async
   app._runHealth()
   assert.equal(notices.length, 0, '关掉后不主动响')
   assert.equal(app.healthSnapshot().ok, false, '关掉的是提醒，不是状态本身')
+})
+
+test('PK 开场：检测到新一场就分段播对面情报，同一场只播一次', async (t) => {
+  let battle = {
+    active: true,
+    pkId: 'pk-1',
+    members: [
+      { uid: '1', roomId: '200', name: '对面主播' },
+      { uid: '2', roomId: '1000100', name: '我方' },
+    ],
+  }
+  const { app } = makeApp(t, {
+    rooms: ['100'],
+    cfg: { pkBrief: true, pkBriefThreshold: 1000 },
+    fetchPkBattle: async () => battle,
+    fetchRoom: async (id) =>
+      String(id) === '200'
+        ? { online: 1234, liveState: 'live', title: '对面' }
+        : { online: 50, liveState: 'live', title: '我方' },
+    fetchRank: async ({ roomId }) =>
+      String(roomId) === '200'
+        ? { items: [{ score: 600 }, { score: 400 }, { score: 10 }] }
+        : { items: [] },
+  })
+  await app.start()
+  await new Promise((r) => setTimeout(r, 20))
+
+  const runner = app.rooms.get('100').runner
+  const texts = () => runner.gate.said.map((x) => x.text)
+  assert.deepEqual(texts(), [
+    '对面是：对面主播',
+    '对面直播间 1234 人',
+    '对面日榜前十贡献 1010',
+    '对方看起来很强，谨慎对待',
+  ])
+  assert.ok(runner.gate.said.every((x) => x.reason === 'pk_brief'))
+  assert.ok(runner.heldFor > 0, '四段播报期间要压住其它插件发言')
+
+  // 同一场再拉一次不能再播
+  await app.pollPk()
+  assert.equal(texts().length, 4)
+
+  // 结束 + 新一场：阈值调高，改说「一般」
+  battle = { active: false, pkId: '', members: [] }
+  await app.pollPk()
+  app.pkBriefThreshold = 2000
+  battle = {
+    active: true,
+    pkId: 'pk-2',
+    members: [{ uid: '1', roomId: '200', name: '对面主播' }],
+  }
+  await app.pollPk()
+  assert.equal(texts().length, 8)
+  assert.equal(texts().at(-1), '对方看起来一般，但也要全力以赴')
 })
