@@ -2978,3 +2978,25 @@ test('账号：换号后重建房间连接，不重启进程', async (t) => {
   assert.ok(notices.some((x) => x.includes('新号')), '页面上要说清楚换了哪个号')
   assert.equal(resets.length, 1, '换号后页面要清一次，避免旧事件接在新连接后面')
 })
+
+test('账号：换号正在重建时再点一次，不会叠第二套连接', async (t) => {
+  const { app } = await makeApp(t, { rooms: ['100', '200'], activeRoomId: '100' })
+  await app.start()
+
+  let boots = 0
+  const original = app._bootRoom.bind(app)
+  app._bootRoom = async (key) => {
+    boots += 1
+    await new Promise((r) => setTimeout(r, 20))
+    return original(key)
+  }
+
+  const [a, b] = await Promise.all([
+    app.rebindAccount({ uname: '新号', uid: 1 }),
+    app.rebindAccount({ uname: '新号', uid: 1 }),
+  ])
+  assert.equal(a.app, 'yuyue3')
+  assert.equal(b.app, 'yuyue3')
+  assert.equal(boots, 2, '两间房只该重建一轮，连点两次不能建四份')
+  assert.equal(app.rooms.size, 2)
+})

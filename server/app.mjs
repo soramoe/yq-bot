@@ -1255,6 +1255,16 @@ export class App {
    * 把房间重开一遍；HTTP 服务和 WS 订阅者都不动，页面只会收到一次 reset。
    */
   async rebindAccount(account = null) {
+    // 扫码页可能被连点两次：第一次还在重建时，第二次只等同一份结果，
+    // 不叠着建第二套连接（否则后建的那套会把先建的 runner 顶掉）。
+    if (this._rebinding) return this._rebinding;
+    this._rebinding = this._rebindAccount(account).finally(() => {
+      this._rebinding = null;
+    });
+    return this._rebinding;
+  }
+
+  async _rebindAccount(account = null) {
     const keys = [...this.rooms.keys()];
     const wasActive = this.activeKey;
     this.log.info(`[AUTH] 重建 ${keys.length} 个房间的连接`);
@@ -1264,6 +1274,11 @@ export class App {
     this.rooms.clear();
     this.runner = null;
     this.activeKey = '';
+    // 换号等于换了一条连接：旧的断线/安静计时和 PK 场次都不能带过去
+    this._pkBattleId = '';
+    this._lastEventAt = 0;
+    this._wsStatus = '';
+    this._wsReconnectingSince = 0;
 
     const wanted = keys.length ? keys : [String(this.roomId)];
     for (const key of wanted) {
@@ -1706,6 +1721,17 @@ export class App {
         status: 409,
         code: 'not_downloaded',
       });
+    }
+
+    // 更新期间端口会短暂消失：给巡检任务留个标记，别让它抢先把旧版本拉起来。
+    // 更新进程退出时会删掉这个文件（正常成功、失败、回滚都会删）。
+    try {
+      writeFileSync(
+        join(this.dataDir, 'updating'),
+        JSON.stringify({ version: dl.version, pid: process.pid, at: Date.now() }, null, 2),
+      );
+    } catch (err) {
+      this.log.warn(`[更新] 写更新标记失败（不影响安装）：${err?.message ?? err}`);
     }
     const child = spawn(
       process.execPath,

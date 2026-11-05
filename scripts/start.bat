@@ -20,8 +20,14 @@ if /i "%~1"=="auto" (
     popd
     exit /b 0
   )
+  if exist "%ROOT%\data\updating" (
+    echo [SKIP] update is in progress
+    popd
+    exit /b 0
+  )
 ) else (
   if exist "%PAUSE_FLAG%" del /q "%PAUSE_FLAG%" >nul 2>&1
+  if exist "%ROOT%\data\updating" del /q "%ROOT%\data\updating" >nul 2>&1
 )
 
 node "scripts\health.mjs" >nul 2>&1

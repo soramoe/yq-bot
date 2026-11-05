@@ -48,6 +48,26 @@ for (let i = 0; i < args.length; i++) {
 
 const root = opt.root;
 const logFile = root ? join(root, 'data', 'update.log') : '';
+const updatingMarker = root ? join(root, 'data', 'updating') : '';
+
+// 更新期间端口会短暂消失，巡检任务靠这个标记不去抢启动旧版本。
+// 正常退出、失败、回滚都会走到这里；被强杀时留下的标记由手动 start 清掉。
+if (updatingMarker) {
+  try {
+    mkdirSync(join(root, 'data'), { recursive: true });
+    appendFileSync(updatingMarker, '');
+  } catch {
+    /* 标记写不了也不能阻止更新 */
+  }
+  process.on('exit', () => {
+    try {
+      rmSync(updatingMarker, { force: true });
+    } catch {
+      /* ignore */
+    }
+  });
+}
+
 
 function log(message) {
   const line = `[${new Date().toISOString()}] ${message}`;
