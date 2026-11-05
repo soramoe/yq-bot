@@ -2763,3 +2763,49 @@ test('授权：维护页显示状态、机器码和预估价格，接口也接�
   assert.doesNotMatch(settings, /售价\s*[:：]\s*¥?\d/, '不能写死售价')
   assert.match(apiSrc, /license:\s*\(\)\s*=>\s*request\('\/api\/license'/, 'api.js 要有 license 方法')
 })
+
+/* ── OBS 挂件：用户得知道地址怎么填 ── */
+
+test('OBS 挂件：地址只带非默认参数，hide 去重并排序', async () => {
+  const { buildOverlayUrl } = await import('../../web/views/overlay-config.js')
+  assert.equal(
+    buildOverlayUrl('http://127.0.0.1:8900'),
+    'http://127.0.0.1:8900/overlay.html',
+    '默认主题和场景不该往地址里塞参数',
+  )
+  const url = new URL(buildOverlayUrl('http://127.0.0.1:8900', {
+    theme: 'light',
+    scene: 'compact',
+    hide: ['stats', 'paid', 'stats', 'nonsense'],
+  }))
+  assert.equal(url.searchParams.get('theme'), 'light')
+  assert.equal(url.searchParams.get('scene'), 'compact')
+  assert.equal(url.searchParams.get('hide'), 'paid,stats', '重复与非法项要过滤并按字母排序')
+})
+
+test('OBS 挂件：打开面板给出可直接复制的地址和 OBS 步骤', async () => {
+  const { createOverlayConfig } = await import('../../web/views/overlay-config.js')
+  const dlg = new FakeNode('dialog')
+  dlg.open = false
+  dlg.showModal = () => { dlg.open = true }
+  dlg.close = () => { dlg.open = false }
+  const ov = createOverlayConfig({ dlg, toast: () => {}, origin: 'http://127.0.0.1:8900' })
+  ov.open()
+  assert.equal(dlg.open, true, '点「挂件」要打开自己的对话框')
+  const input = dlg.all('ovcfg-url')[0]
+  assert.ok(input, '要有地址输入框')
+  assert.match(input.value, /^http:\/\/127\.0\.0\.1:8900\/overlay\.html/)
+  assert.match(dlg.textContent, /浏览器/, '要写清 OBS 里怎么加')
+  assert.match(dlg.textContent, /1280/, '要给出推荐尺寸')
+})
+
+test('OBS 挂件：顶栏有独立入口，不是插件列表里的一项', () => {
+  const html = readFileSync(join(process.cwd(), 'web/index.html'), 'utf8')
+  const app = readFileSync(join(process.cwd(), 'web/app.js'), 'utf8')
+  const css = readFileSync(join(process.cwd(), 'web/app.css'), 'utf8')
+  assert.match(html, /id="btn-overlay"/, '顶部要有挂件入口')
+  assert.match(html, /id="dlg-overlay"/, '挂件要有自己的对话框')
+  assert.match(app, /createOverlayConfig/, '要接上挂件面板')
+  assert.match(app, /btnOverlay\.addEventListener/, '按钮要绑定打开动作')
+  assert.match(css, /\.ovcfg-url/, '地址框要有样式')
+})

@@ -1202,6 +1202,59 @@ dialog.dlg-wide[open] {
   line-height: var(--lh);
 }
 
+/* OBS 挂件设置 */
+.ovcfg-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s3);
+  padding: var(--s4);
+}
+.ovcfg-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s2);
+}
+.ovcfg-head h4 { margin: 0; }
+.ovcfg-intro {
+  margin: 0;
+  color: var(--text-2);
+  font-size: var(--fs-sm);
+  line-height: var(--lh);
+}
+.ovcfg-field { display: flex; flex-direction: column; gap: 6px; }
+.ovcfg-label { font-size: var(--fs-xs); color: var(--text-3); }
+.ovcfg-row { display: flex; align-items: center; gap: 8px; }
+.ovcfg-url {
+  flex: 1;
+  min-width: 0;
+  font-family: ui-monospace, Consolas, monospace;
+  font-size: var(--fs-xs);
+}
+.ovcfg-grid { display: grid; grid-template-columns: 1fr 1fr; gap: var(--s3); }
+.ovcfg-checks { display: flex; flex-wrap: wrap; gap: 8px 16px; }
+.ovcfg-check {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--fs-sm);
+  color: var(--text-2);
+  cursor: pointer;
+}
+.ovcfg-check input { margin: 0; }
+.ovcfg-steps {
+  margin: 0;
+  padding-left: 1.4em;
+  color: var(--text-2);
+  font-size: var(--fs-sm);
+  line-height: 1.8;
+}
+.ovcfg-hint { font-size: var(--fs-xs); color: var(--text-3); line-height: var(--lh); }
+@media (max-width: 640px) {
+  .ovcfg-grid { grid-template-columns: 1fr; }
+  .ovcfg-row { flex-wrap: wrap; }
+}
+
 .plg-foot {
   display: flex;
   align-items: center;

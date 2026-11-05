@@ -25,6 +25,7 @@ import { createPatrons } from './views/patrons.js';
 import { createScQueue } from './views/sc-queue.js';
 import { createSongQueue } from './views/song-queue.js';
 import { createPk } from './views/pk.js';
+import { createOverlayConfig } from './views/overlay-config.js';
 import { buildRoomRows, summarizeRooms } from './views/room-overview.js';
 import { installPwa } from './core/pwa.js';
 
@@ -95,6 +96,8 @@ const dom = {
   dlgMaint: $('#dlg-maint'),
   maintBody: $('#maint-body'),
   maintClose: $('#maint-close'),
+  btnOverlay: $('#btn-overlay'),
+  dlgOverlay: $('#dlg-overlay'),
   toasts: $('#toasts'),
 };
 
@@ -140,6 +143,9 @@ const songQueue = createSongQueue({ dlg: dom.dlgSongs, badge: dom.songsBadge, ap
 
 // PK 情报：只拉公开房间信息，不读对面弹幕、不自动发言
 const pkPanel = createPk({ dlg: dom.dlgPk, toast });
+
+// OBS 挂件：生成地址 + 复制 + 说明；挂件本身是只读页面，不参与插件仲裁
+const overlayPanel = createOverlayConfig({ dlg: dom.dlgOverlay, toast });
 
 // 提醒 webhook 的设置面板在「房间总览」里：它的作用域就是"所有房间"，
 // 单独开一页反而会让人以为只对当前这间生效
@@ -550,6 +556,7 @@ $('#room-cancel').addEventListener('click', () => dom.dlg.close());
 
 dom.btnPlugins.addEventListener('click', () => settings.open());
 dom.btnMaint.addEventListener('click', () => maintenance.open());
+dom.btnOverlay.addEventListener('click', () => overlayPanel.open());
 
 /* ── 房间总览 ── */
 
