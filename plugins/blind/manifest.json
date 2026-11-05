@@ -1,0 +1,48 @@
+{
+  "id": "blind",
+  "name": "盲盒播报",
+  "version": "1.0.0",
+  "description": "有人开盲盒时播报开出了什么、赚了还是亏了。赚的才播，亏的交回礼物答谢。",
+  "claims": {
+    "GIFT": 200
+  },
+  "config": [
+    {
+      "key": "enabled",
+      "type": "switch",
+      "label": "启用盲盒播报",
+      "default": true,
+      "group": "开关"
+    },
+    {
+      "key": "minProfit",
+      "type": "number",
+      "label": "只播报盈亏不低于",
+      "default": 0,
+      "min": -100000,
+      "max": 100000,
+      "suffix": "电池",
+      "hint": "低于这个值的盲盒不单独播报，但还是会被当作普通礼物答谢 —— 不会一条反馈都没有",
+      "group": "过滤"
+    },
+    {
+      "key": "cooldownSec",
+      "type": "number",
+      "label": "同一人冷却",
+      "default": 30,
+      "min": 0,
+      "max": 600,
+      "suffix": "秒",
+      "hint": "0 表示不限。冷却期内的盲盒交回礼物答谢处理",
+      "group": "频率"
+    },
+    {
+      "key": "template",
+      "type": "text",
+      "label": "播报文案",
+      "default": "感谢 {用户} 的{盒子}，开出{礼物}，{盈亏}！",
+      "hint": "可用：{用户} {盒子} {礼物} {数量} {成本} {价值} {盈亏} {盈亏数}",
+      "group": "文案"
+    }
+  ]
+}

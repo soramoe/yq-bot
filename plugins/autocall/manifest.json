@@ -1,0 +1,104 @@
+{
+  "id": "autocall",
+  "name": "主动打招呼",
+  "version": "1.0.0",
+  "description": "不用人点：服务自己每隔一段时间，从最近来过的观众里挑一位，主动 @ 他说句招呼。",
+  "claims": {},
+  "config": [
+    {
+      "key": "enabled",
+      "type": "switch",
+      "label": "启用主动打招呼",
+      "default": false,
+      "hint": "默认关闭：它会周期性占用发送间隔。开启前请确认文案和间隔都合适",
+      "group": "开关"
+    },
+    {
+      "key": "intervalSec",
+      "type": "number",
+      "label": "每隔",
+      "default": 300,
+      "min": 60,
+      "max": 7200,
+      "suffix": "秒",
+      "hint": "两次主动招呼的间隔。60 秒是硬下限，再短就是刷屏",
+      "group": "节奏"
+    },
+    {
+      "key": "onlyWhenLive",
+      "type": "switch",
+      "label": "只在直播中说",
+      "default": true,
+      "hint": "没开播时房间里没人，@ 出去也没有人应",
+      "group": "节奏"
+    },
+    {
+      "key": "withinSec",
+      "type": "number",
+      "label": "只挑最近来过的",
+      "default": 600,
+      "min": 30,
+      "max": 86400,
+      "suffix": "秒内",
+      "hint": "只从这段时间里进过房间的观众中挑，避免 @ 一个早走了的人",
+      "group": "候选"
+    },
+    {
+      "key": "minAgeSec",
+      "type": "number",
+      "label": "刚进场先不 @",
+      "default": 20,
+      "min": 0,
+      "max": 600,
+      "suffix": "秒",
+      "hint": "刚进来这几十秒欢迎插件已经 @ 过了，再 @ 一次会连着两条弹幕点同一个人",
+      "group": "候选"
+    },
+    {
+      "key": "perUserCooldownSec",
+      "type": "number",
+      "label": "同一个人冷却",
+      "default": 1800,
+      "min": 0,
+      "max": 86400,
+      "suffix": "秒",
+      "hint": "同一个人在这段时间内不会被点第二次。0 表示只在轮完一遍后才重复",
+      "group": "频率"
+    },
+    {
+      "key": "pickMode",
+      "type": "select",
+      "label": "挑人方式",
+      "default": "oldest",
+      "options": [
+        { "value": "oldest", "label": "最久没被点过的（雨露均沾）" },
+        { "value": "newest", "label": "最近进场的" },
+        { "value": "random", "label": "随机挑一个" }
+      ],
+      "hint": "默认最久没被点过的：热闹房间里不会总 @ 到同一批人",
+      "group": "候选"
+    },
+    {
+      "key": "shuffle",
+      "type": "switch",
+      "label": "文案随机",
+      "default": false,
+      "hint": "开：每次随机挑一句。关：按顺序轮播，保证每句都会说到",
+      "group": "文案"
+    },
+    {
+      "key": "templates",
+      "type": "lines",
+      "label": "招呼语",
+      "default": [
+        "抓到一只野生观众！",
+        "别潜水啦，冒个泡～",
+        "这局由你发言！",
+        "刚好想找人聊天～"
+      ],
+      "presets": "greetings",
+      "hint": "一行一句，可用 {用户}，也可以直接用上面的「套用文案预设」。预设都不写名字：结构化 @ 会由 B站 自己挂上可点的标签，写两遍会重复；不写名字还能避免长昵称把弹幕顶过 20 字",
+      "group": "文案"
+    }
+  ]
+}

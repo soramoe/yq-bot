@@ -1,0 +1,61 @@
+{
+  "id": "command",
+  "name": "弹幕指令",
+  "version": "1.0.0",
+  "description": "观众发 #帮助 / #本场 / #我来过 时回一句。只认「整条消息恰好是一个指令」，不会吃掉正常聊天。",
+  "claims": {
+    "DANMAKU": 120
+  },
+  "config": [
+    {
+      "key": "enabled",
+      "type": "switch",
+      "label": "启用弹幕指令",
+      "default": true,
+      "group": "开关"
+    },
+    {
+      "key": "cooldownSec",
+      "type": "number",
+      "label": "同一人冷却",
+      "default": 15,
+      "min": 0,
+      "max": 3600,
+      "step": 1,
+      "hint": "0 = 不限。回复还要过发送闸门的全局限速，所以实际频率更低",
+      "group": "设置"
+    },
+    {
+      "key": "helpText",
+      "type": "text",
+      "label": "#帮助 的回复",
+      "default": "我会：#帮助 / #本场 / #我来过",
+      "hint": "20 字以内，超了会被 B站 截断",
+      "group": "文案"
+    },
+    {
+      "key": "sessionText",
+      "type": "text",
+      "label": "#本场 的回复",
+      "default": "本场 {弹幕} 条弹幕，{观众} 位观众",
+      "hint": "可用：{弹幕} {进场} {观众} {礼物} {舰长} {SC}",
+      "group": "文案"
+    },
+    {
+      "key": "visitText",
+      "type": "text",
+      "label": "#我来过 的回复",
+      "default": "{用户} 上次是{上次}来的",
+      "hint": "可用：{用户} {上次}（今天 / 昨天 / 3 天前）",
+      "group": "文案"
+    },
+    {
+      "key": "firstVisitText",
+      "type": "text",
+      "label": "第一次来时的回复",
+      "default": "第一次见你呀 {用户}",
+      "hint": "观众簿里没有这个人时用这句",
+      "group": "文案"
+    }
+  ]
+}

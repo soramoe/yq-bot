@@ -1,0 +1,607 @@
+/**
+ * 插件面板：schema 驱动，前端不认识任何具体插件。
+ *
+ * 这一条是 README 里"新增一个插件，前端代码改动 = 0 行"的兑现方式：
+ * 表单完全由 `/api/plugins` 返回的 `fields` 生成，字段的 label、类型、
+ * 取值范围、提示语全部来自 manifest。想加一个插件，只要写好 manifest 的
+ * `config` 段，这里自动就有对应的控件。
+ *
+ * 三条硬约定：
+ *
+ * 1. **只提交用户改过的那个字段**。保存的是增量 patch，不是整份配置 ——
+ *    否则用户打开一次面板就把当时所有默认值固化了，往后插件升级改了默认文案，
+ *    他永远看不到，而且不会有任何提示。
+ *
+ * 2. **回填服务端返回的值，不回显自己传的值**。manifest 有 min/max，
+ *    用户填 100000 而实际生效 600，回显自己的输入等于显示一个假值。
+ *
+ * 3. **保存失败要把界面退回去**。界面显示"已保存"而实际没保存，
+ *    比保存失败本身更糟 —— 用户会以为设置生效了，直播时才发现没生效。
+ */
+
+import { api } from '../core/api.js';
+import { el, replaceChildren } from '../core/dom.js';
+import { saveBlob } from '../core/download.js';
+import { GREETING_PACKS, findPack, matchPack } from '../core/greetings.js';
+
+/** 字段没写 group 时归到这一组 */
+const DEFAULT_GROUP = '设置';
+
+/**
+ * 固定 tab 的 id。
+ *
+ * 用双下划线开头，保证不会和插件 id（manifest 里的小写标识符）撞名。
+ * 「维护」不属于任何插件，但它需要一个能放的地方 —— 塞进某个插件的
+ * 面板里会让那个插件的配置看起来莫名其妙。
+ */
+const MAINTENANCE = '__maintenance';
+
+/**
+ * @param {object} opts
+ * @param {HTMLDialogElement} opts.dlg
+ * @param {HTMLElement} opts.tabs
+ * @param {HTMLElement} opts.body
+ * @param {HTMLElement} opts.closeBtn
+ * @param {(text:string, level?:string)=>void} opts.toast
+ */
+export function createSettings({ dlg, tabs, body, closeBtn, toast }) {
+  /** @type {Array<object>} 最近一次拿到的插件快照 */
+  let plugins = [];
+  /** 当前选中的插件 id */
+  let current = null;
+  let loading = false;
+
+  async function open() {
+    if (!dlg.open) dlg.showModal();
+    await reload();
+  }
+
+  async function reload() {
+    if (loading) return;
+    loading = true;
+    try {
+      const r = await api.plugins();
+      plugins = r.plugins ?? [];
+      // 维护页不是插件，不能被"找不到就重置"的逻辑冲掉
+      if (current !== MAINTENANCE && !plugins.some((p) => p.id === current)) {
+        current = plugins[0]?.id ?? null;
+      }
+      renderTabs();
+      renderBody();
+    } catch (err) {
+      toast(err.message, 'error');
+      replaceChildren(body, [el('p', { class: 'plg-empty', text: `拿不到插件列表：${err.message}` })]);
+    } finally {
+      loading = false;
+    }
+  }
+
+  /* ────────────────────────── 顶部 tab ────────────────────────── */
+
+  function renderTabs() {
+    // 维护排在插件前面：它是"这台机器"的设置，插件是"玩法"，
+    // 找"检查更新 / 导出诊断"的人不该先翻过五个插件
+    const list = [
+      { id: MAINTENANCE, name: '维护' },
+      ...plugins.map((p) => ({ id: p.id, name: p.name ?? p.id })),
+    ];
+    replaceChildren(
+      tabs,
+      list.map((t) =>
+        el('button', {
+          class: `plg-tab${t.id === current ? ' is-on' : ''}`,
+          attrs: { type: 'button', role: 'tab', 'aria-selected': String(t.id === current) },
+          text: t.name,
+          on: {
+            click: () => {
+              current = t.id;
+              renderTabs();
+              renderBody();
+            },
+          },
+        }),
+      ),
+    );
+  }
+
+  /* ────────────────────────── 表单 ────────────────────────── */
+
+  function currentPlugin() {
+    return plugins.find((p) => p.id === current) ?? null;
+  }
+
+  function renderBody() {
+    // 维护页要异步读状态，单独走一条路
+    if (current === MAINTENANCE) {
+      void renderMaintenance();
+      return;
+    }
+
+    const p = currentPlugin();
+    if (!p) {
+      replaceChildren(body, [el('p', { class: 'plg-empty', text: '还没有加载任何插件' })]);
+      return;
+    }
+
+    const nodes = [];
+
+    // 插件自身的开关（宿主级）。放在最上面，因为它决定下面所有配置是否有意义。
+    nodes.push(
+      el('div', { class: 'plg-title' }, {
+        children: [
+          el('div', { class: 'plg-title-main' }, {
+            children: [
+              el('span', { class: 'plg-name', text: p.name ?? p.id }),
+              el('span', { class: 'plg-ver', text: p.version ?? '' }),
+            ],
+          }),
+          el('label', { class: 'switch', attrs: { title: '关掉后这个插件完全不参与，配置保留' } }, {
+            children: [
+              el('input', {
+                attrs: { type: 'checkbox', ...(p.enabled ? { checked: 'checked' } : {}) },
+                on: {
+                  change: (e) => togglePlugin(p, e.target.checked),
+                },
+              }),
+              el('span', { text: '启用' }),
+            ],
+          }),
+        ],
+      }),
+    );
+
+    if (p.description) {
+      nodes.push(el('p', { class: 'plg-desc', text: p.description }));
+    }
+
+    const fields = p.fields ?? [];
+    if (fields.length === 0) {
+      nodes.push(el('p', { class: 'plg-empty', text: '这个插件没有可改的配置' }));
+    }
+
+    // 按 group 分段，段内保持 manifest 里的顺序（作者排的顺序就是使用顺序）
+    const groups = new Map();
+    for (const f of fields) {
+      const g = f.group || DEFAULT_GROUP;
+      if (!groups.has(g)) groups.set(g, []);
+      groups.get(g).push(f);
+    }
+
+    for (const [g, list] of groups) {
+      nodes.push(el('div', { class: 'plg-group', text: g }));
+      for (const f of list) nodes.push(fieldRow(p, f));
+    }
+
+    if (fields.length) {
+      nodes.push(
+        el('div', { class: 'plg-foot' }, {
+          children: [
+            el('span', { class: 'plg-foot-tip', text: '改动即时生效，不需要重启' }),
+            el('button', {
+              class: 'btn',
+              attrs: { type: 'button' },
+              text: '恢复默认',
+              on: { click: () => resetPlugin(p) },
+            }),
+          ],
+        }),
+      );
+    }
+
+    replaceChildren(body, nodes);
+  }
+
+  /* ────────────────────────── 维护 ────────────────────────── */
+
+  /**
+   * 维护页：更新检查 + 诊断包。
+   *
+   * 刻意**不**把"设置更新源"做成自动保存：地址写错不该悄悄生效，
+   * 而且这是要发网络请求的东西 —— 让人明确点一下"保存"再点"检查"，
+   * 比"输一个字就存一次"清楚得多。
+   */
+  async function renderMaintenance() {
+    replaceChildren(body, [el('p', { class: 'plg-empty', text: '正在读取状态…' })]);
+
+    let st;
+    try {
+      st = await api.status();
+    } catch (err) {
+      replaceChildren(body, [el('p', { class: 'plg-empty', text: `读取状态失败：${err.message}` })]);
+      return;
+    }
+    // 用户在等结果的时候可能已经切到别的插件了
+    if (current !== MAINTENANCE) return;
+
+    const version = st.version ?? '—';
+    const savedUrl = String(st.config?.updateUrl ?? '');
+    const snapshot = st.update ?? null;
+
+    const nodes = [];
+
+    /* ── 更新 ── */
+    nodes.push(el('div', { class: 'plg-group', text: '更新' }));
+    nodes.push(
+      el('div', { class: 'plg-field' }, {
+        children: [
+          el('div', { class: 'plg-label' }, {
+            children: [el('span', { class: 'plg-label-text', text: `当前版本 ${version}` })],
+          }),
+          el('div', { class: 'plg-hint', text: '三代不自动覆盖代码：只提示有没有新版本，装不装由你决定' }),
+        ],
+      }),
+    );
+
+    const urlInput = el('input', {
+      class: 'plg-input',
+      attrs: { type: 'text', value: savedUrl, placeholder: '更新源地址（留空 = 不检查）', spellcheck: 'false' },
+    });
+    const saveUrlBtn = el('button', { class: 'btn small', attrs: { type: 'button' }, text: '保存地址' });
+    const checkBtn = el('button', { class: 'btn primary small', attrs: { type: 'button' }, text: '检查更新' });
+    const updNote = el('div', { class: 'plg-hint', text: describeUpdate(snapshot) });
+
+    nodes.push(
+      el('div', { class: 'plg-field' }, {
+        children: [
+          el('div', { class: 'plg-label', children: [el('span', { class: 'plg-label-text', text: '更新源' })] }),
+          urlInput,
+          el('div', { class: 'side-actions', children: [saveUrlBtn, checkBtn] }),
+          updNote,
+          el('div', {
+            class: 'plg-hint',
+            text: '更新源要返回 JSON：{ "version": "0.3.0", "notes": "改了什么", "url": "下载页" }',
+          }),
+        ],
+      }),
+    );
+
+    saveUrlBtn.addEventListener('click', async () => {
+      saveUrlBtn.disabled = true;
+      try {
+        const r = await api.setUpdateUrl(String(urlInput.value ?? '').trim());
+        updNote.textContent = r.updateUrl ? `更新源已保存：${r.updateUrl}` : '已清空更新源，之后不再检查更新';
+        updNote.className = 'plg-hint';
+        toast('更新源已保存', 'info');
+      } catch (err) {
+        updNote.textContent = err.message;
+        updNote.className = 'plg-hint is-error';
+      } finally {
+        saveUrlBtn.disabled = false;
+      }
+    });
+
+    checkBtn.addEventListener('click', async () => {
+      checkBtn.disabled = true;
+      updNote.textContent = '正在检查…';
+      updNote.className = 'plg-hint';
+      try {
+        const r = await api.checkUpdate({ force: true });
+        updNote.textContent = describeUpdate(r);
+        updNote.className = `plg-hint${r.hasUpdate ? ' is-new' : r.error ? ' is-error' : ''}`;
+      } catch (err) {
+        updNote.textContent = err.message;
+        updNote.className = 'plg-hint is-error';
+      } finally {
+        checkBtn.disabled = false;
+      }
+    });
+
+    /* ── 诊断包 ── */
+    nodes.push(el('div', { class: 'plg-group', text: '诊断包' }));
+
+    const diagBtn = el('button', { class: 'btn small', attrs: { type: 'button' }, text: '生成诊断包' });
+    const diagNote = el('div', {
+      class: 'plg-hint',
+      text: '打包版本、状态、脱敏配置与最近事件骨架。不含 Cookie、口令、昵称和弹幕内容，可以发给别人排障。',
+    });
+    nodes.push(
+      el('div', { class: 'plg-field' }, {
+        children: [
+          el('div', { class: 'plg-label', children: [el('span', { class: 'plg-label-text', text: '一键导出' })] }),
+          el('div', { class: 'side-actions', children: [diagBtn] }),
+          diagNote,
+        ],
+      }),
+    );
+
+    diagBtn.addEventListener('click', async () => {
+      diagBtn.disabled = true;
+      diagNote.textContent = '正在打包…';
+      diagNote.className = 'plg-hint';
+      try {
+        const { blob, filename, size } = await api.diagnostic();
+        const saved = saveBlob(blob, filename);
+        const kb = Math.max(1, Math.round(size / 1024));
+        diagNote.textContent = saved
+          ? `已生成 ${filename}（${kb} KB）`
+          : `已生成 ${filename}（${kb} KB），但当前环境不能自动下载，请从浏览器下载记录里取`;
+        diagNote.className = 'plg-hint';
+      } catch (err) {
+        diagNote.textContent = err.message;
+        diagNote.className = 'plg-hint is-error';
+      } finally {
+        diagBtn.disabled = false;
+      }
+    });
+
+    replaceChildren(body, nodes);
+  }
+
+  /** 把更新检查的结果翻译成人话。null 也要有话说 */
+  function describeUpdate(r) {
+    if (!r) return '还没检查过';
+    if (!r.configured) return '还没配置更新源，填一个地址才能检查';
+    if (r.error) return `检查失败：${r.error}`;
+    if (r.hasUpdate) {
+      return `有新版本 ${r.latest}（当前 ${r.current}）${r.notes ? `：${r.notes}` : ''}`;
+    }
+    return `已是最新（当前 ${r.current}）`;
+  }
+
+  /**
+   * 一行字段。
+   *
+   * 布局是「标签在上、控件在下」的竖排，而不是左右两栏。
+   * 左标签右控件的两栏在 320px 宽度下会把输入框压到无法输入，
+   * 而手机上改配置正是最常见的使用场景。
+   */
+  function fieldRow(p, f) {
+    const value = p.config?.[f.key];
+    const isDefault = sameValue(value, f.default);
+
+    const control = buildControl(f, value, (raw) => saveField(p, f, raw));
+
+    return el('div', { class: 'plg-field', dataset: { key: f.key } }, {
+      children: [
+        el('div', { class: 'plg-label' }, {
+          children: [
+            el('span', { class: 'plg-label-text', text: f.label ?? f.key }),
+            isDefault ? null : el('span', { class: 'plg-badge', text: '已改' }),
+          ],
+        }),
+        control,
+        f.hint ? el('div', { class: 'plg-hint', text: f.hint }) : null,
+      ],
+    });
+  }
+
+  /* ────────────────────────── 控件 ────────────────────────── */
+
+  function buildControl(f, value, commit) {
+    switch (f.type) {
+      case 'switch': {
+        const input = el('input', {
+          attrs: { type: 'checkbox', ...(value ? { checked: 'checked' } : {}) },
+          on: { change: (e) => commit(e.target.checked) },
+        });
+        return el('label', { class: 'switch' }, {
+          children: [input, el('span', { text: value ? '开' : '关' })],
+        });
+      }
+
+      case 'number': {
+        const attrs = { type: 'number', value: String(value ?? 0) };
+        if (Number.isFinite(f.min)) attrs.min = String(f.min);
+        if (Number.isFinite(f.max)) attrs.max = String(f.max);
+        attrs.step = String(Number.isFinite(f.step) ? f.step : 1);
+        const input = el('input', {
+          class: 'plg-input',
+          attrs,
+          on: {
+            // change 而不是 input：input 每敲一个字符就存一次，
+            // 数字会被存成"1"→"10"→"100" 三个中间值
+            change: (e) => {
+              const n = Number(e.target.value);
+              if (!Number.isFinite(n)) {
+                e.target.value = String(value ?? 0);
+                return;
+              }
+              commit(n);
+            },
+          },
+        });
+        return input;
+      }
+
+      case 'textarea': {
+        const input = el('textarea', {
+          class: 'plg-input plg-area',
+          attrs: { rows: '3' },
+          text: String(value ?? ''),
+          on: { change: (e) => commit(e.target.value) },
+        });
+        return input;
+      }
+
+      case 'lines': {
+        const arr = Array.isArray(value) ? value : [];
+        const input = el('textarea', {
+          class: 'plg-input plg-area',
+          attrs: { rows: '4' },
+          text: arr.join('\n'),
+          on: {
+            change: (e) => commit(e.target.value.split('\n').map((x) => x.trim()).filter(Boolean)),
+          },
+        });
+
+        // manifest 写了 `presets` 才加这一层：预设列表来自共享的文案库，
+        // 前端依然不认识任何具体插件。选一套 = 把该套文案写进输入框并立刻保存，
+        // 走的是和普通编辑完全相同的 saveField 路径（回填服务端的值、失败退回）。
+        if (f.presets !== 'greetings') return input;
+        const current = matchPack(arr);
+        const select = el('select', {
+          class: 'plg-input plg-preset',
+          attrs: { 'aria-label': '套用文案预设' },
+          on: {
+            change: (e) => {
+              const pack = findPack(e.target.value);
+              if (!pack) return; // 「自定义」项：不动输入框，也不提交
+              input.value = pack.lines.join('\n');
+              commit(pack.lines.slice());
+            },
+          },
+        }, {
+          children: [
+            el('option', {
+              // 已经在用某套预设时，这一项只是提示文字、不可选；
+              // 否则选了它等于"什么都不做"，看起来却像操作成功了
+              attrs: {
+                value: '',
+                ...(current ? { disabled: 'disabled' } : { selected: 'selected' }),
+              },
+              text: current ? '换一套预设…' : '自定义文案',
+            }),
+            ...GREETING_PACKS.map((p) =>
+              el('option', {
+                attrs: { value: p.id, ...(current?.id === p.id ? { selected: 'selected' } : {}) },
+                text: p.name,
+              }),
+            ),
+          ],
+        });
+        const note = el('div', {
+          class: 'plg-hint',
+          text: current
+            ? `当前预设：${current.name}（${current.desc}）`
+            : '当前是自定义文案，选一套可一键替换',
+        });
+        return el('div', { class: 'plg-preset-wrap', children: [select, note, input] });
+      }
+
+      case 'list': {
+        // 与 lines 的区别：lines 是"文本行"，list 是"条目"，不做 trim 也不丢空行
+        const arr = Array.isArray(value) ? value : [];
+        const input = el('textarea', {
+          class: 'plg-input plg-area',
+          attrs: { rows: '4' },
+          text: arr.map((x) => (typeof x === 'string' ? x : JSON.stringify(x))).join('\n'),
+          on: { change: (e) => commit(e.target.value.split('\n').filter((x) => x !== '')) },
+        });
+        return input;
+      }
+
+      case 'select': {
+        const opts = Array.isArray(f.options) ? f.options : [];
+        const select = el('select', {
+          class: 'plg-input',
+          on: { change: (e) => commit(e.target.value) },
+        }, {
+          children: opts.map((o) => {
+            const v = typeof o === 'string' ? o : String(o?.value ?? '');
+            const label = typeof o === 'string' ? o : String(o?.label ?? v);
+            return el('option', {
+              attrs: { value: v, ...(String(value ?? '') === v ? { selected: 'selected' } : {}) },
+              text: label,
+            });
+          }),
+        });
+        return select;
+      }
+
+      case 'color': {
+        const input = el('input', {
+          class: 'plg-input plg-color',
+          attrs: { type: 'color', value: String(value ?? '#4c8dff') },
+          on: { change: (e) => commit(e.target.value) },
+        });
+        return input;
+      }
+
+      default: {
+        const input = el('input', {
+          class: 'plg-input',
+          attrs: { type: 'text', value: String(value ?? '') },
+          on: { change: (e) => commit(e.target.value) },
+        });
+        return input;
+      }
+    }
+  }
+
+  /* ────────────────────────── 保存 ────────────────────────── */
+
+  async function saveField(p, f, raw) {
+    const before = p.config?.[f.key];
+
+    try {
+      const r = await api.savePluginConfig(p.id, { [f.key]: raw });
+      // 服务端可能收敛了值（min/max），以它为准
+      p.config = r.config;
+
+      const next = p.config[f.key];
+      if (!sameValue(next, raw)) {
+        toast(`${f.label ?? f.key} 只接受 ${JSON.stringify(next)}，已按规则修正`, 'warn');
+      }
+      // 只重绘这一行，避免整块重排把其他输入框的焦点弄丢
+      redrawField(p, f);
+    } catch (err) {
+      // 退回旧值：界面显示的值必须等于实际生效的值
+      if (p.config) p.config[f.key] = before;
+      redrawField(p, f);
+      toast(err.message, 'error');
+    }
+  }
+
+  function redrawField(p, f) {
+    const row = body.querySelector(`.plg-field[data-key="${cssEscape(f.key)}"]`);
+    if (!row) return;
+    const fresh = fieldRow(p, f);
+    row.replaceWith(fresh);
+  }
+
+  async function resetPlugin(p) {
+    try {
+      const r = await api.resetPluginConfig(p.id);
+      p.config = r.config;
+      renderBody();
+      toast(`已恢复 ${p.name ?? p.id} 的默认配置`, 'info');
+    } catch (err) {
+      toast(err.message, 'error');
+    }
+  }
+
+  async function togglePlugin(p, enabled) {
+    try {
+      await api.setPluginEnabled(p.id, enabled);
+      p.enabled = enabled;
+      renderBody();
+      toast(`${p.name ?? p.id} 已${enabled ? '启用' : '停用'}`, enabled ? 'info' : 'warn');
+    } catch (err) {
+      renderBody();
+      toast(err.message, 'error');
+    }
+  }
+
+  /* ────────────────────────── 事件 ────────────────────────── */
+
+  closeBtn.addEventListener('click', () => dlg.close());
+
+  // 点遮罩关闭：<dialog> 的默认行为是点 backdrop 不关，这里补上，
+  // 否则手机上很容易点进"关不掉"的状态
+  dlg.addEventListener('click', (e) => {
+    if (e.target === dlg) dlg.close();
+  });
+
+  return {
+    open,
+    /** 别的标签页改了配置时用它同步，不整个重拉 */
+    reload,
+  };
+}
+
+/* ────────────────────────── 小工具 ────────────────────────── */
+
+function sameValue(a, b) {
+  if (Array.isArray(a) || Array.isArray(b)) {
+    const x = Array.isArray(a) ? a : [];
+    const y = Array.isArray(b) ? b : [];
+    return x.length === y.length && x.every((v, i) => String(v) === String(y[i]));
+  }
+  if (typeof a === 'boolean' || typeof b === 'boolean') return Boolean(a) === Boolean(b);
+  return String(a ?? '') === String(b ?? '');
+}
+
+/** 属性选择器里的 key 只可能是 manifest 里的 a-z 标识符，但仍要挡住引号 */
+function cssEscape(s) {
+  return String(s).replace(/["\\]/g, '\\$&');
+}

@@ -1,0 +1,110 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="color-scheme" content="dark" />
+    <meta name="theme-color" content="#0b0d11" />
+    <title>渔月崽三代 · 观测台</title>
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <!-- iOS 不读 manifest 的图标和显示模式，这两行是它自己的规矩 -->
+    <link rel="apple-touch-icon" href="/icons/apple-touch-icon-180.png" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-title" content="渔月崽" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <link rel="stylesheet" href="/tokens.css" />
+    <link rel="stylesheet" href="/app.css" />
+  </head>
+  <body>
+    <div class="app">
+      <header class="topbar">
+        <div class="brand">
+          <span class="dot" id="live-dot"></span>
+          <span class="name">渔月崽三代</span>
+          <span class="sep">/</span>
+          <span class="room" id="room-label">连接中…</span>
+        </div>
+
+        <div class="top-actions">
+          <span class="pill is-warn" id="offline-pill" hidden>离线</span>
+          <span class="pill" id="mode-pill">演练</span>
+          <span class="pill" id="conn-pill"><span class="dot"></span><span id="conn-text">连接中</span></span>
+          <label class="switch" title="演练模式下走完整链路，但不真的发弹幕">
+            <input type="checkbox" id="dryrun-toggle" checked />
+            <span>演练模式</span>
+          </label>
+          <button class="btn" id="btn-patrons" type="button">付费用户榜</button>
+          <button class="btn" id="btn-reports" type="button">战报</button>
+          <button class="btn" id="btn-plugins" type="button">插件</button>
+          <button class="btn" id="btn-room" type="button">换房间</button>
+        </div>
+      </header>
+
+      <main class="main">
+        <section class="stats" id="stats" aria-label="本场统计"></section>
+
+        <section class="card" aria-label="实时事件">
+          <div class="card-head">
+            <h2>实时事件</h2>
+            <span class="count" id="ev-count"></span>
+            <span class="spacer"></span>
+          </div>
+          <div class="stream-tools">
+            <div class="filters" id="filters" role="group" aria-label="事件筛选"></div>
+          </div>
+          <div class="stream-body" id="stream">
+            <div class="stream-empty">等待事件…</div>
+          </div>
+          <button class="jump" id="jump" type="button" hidden>有新事件 ↓</button>
+        </section>
+      </main>
+
+      <aside class="side" id="side"></aside>
+    </div>
+
+    <dialog id="dlg-room" class="dlg-wide">
+      <form method="dialog" class="dlg-body" id="room-form">
+        <h4>房间总览</h4>
+        <p>切换只是换个视图：后台那间继续收弹幕、记日志。最多同时盯 10 间。</p>
+        <div class="room-summary" id="room-summary"></div>
+        <div class="room-list" id="room-list"></div>
+        <input id="room-input" type="text" inputmode="numeric" autocomplete="off" placeholder="再打开一间，例如 1901584685" />
+        <div class="room-notify">
+          <label for="notify-input">开播/下播提醒 webhook（企微、钉钉、飞书机器人；留空只弹页内提示）</label>
+          <div class="room-notify-row">
+            <input id="notify-input" type="url" autocomplete="off" spellcheck="false" placeholder="https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=…" />
+            <button class="btn" type="button" id="notify-save">保存</button>
+          </div>
+          <label class="room-notify-check" for="notify-report">
+            <input id="notify-report" type="checkbox" />
+            下播后把本场战报发到同一个 webhook
+          </label>
+        </div>
+        <div class="dlg-actions">
+          <button class="btn" type="button" id="room-cancel">取消</button>
+          <button class="btn primary" value="ok" type="submit" id="room-ok">打开这间</button>
+        </div>
+      </form>
+    </dialog>
+
+    <dialog id="dlg-reports" class="dlg-wide"></dialog>
+
+    <dialog id="dlg-patrons" class="dlg-wide"></dialog>
+
+    <dialog id="dlg-plugins" class="dlg-wide">
+      <div class="plg-wrap">
+        <header class="plg-head">
+          <h4>插件</h4>
+          <button class="btn" type="button" id="plg-close">关闭</button>
+        </header>
+        <div class="plg-tabs" id="plg-tabs" role="tablist"></div>
+        <div class="plg-body" id="plg-body"></div>
+      </div>
+    </dialog>
+
+    <div class="toasts" id="toasts" aria-live="polite"></div>
+
+    <script type="module" src="/app.js"></script>
+  </body>
+</html>

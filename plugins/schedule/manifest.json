@@ -1,0 +1,56 @@
+{
+  "id": "schedule",
+  "name": "定时播报",
+  "version": "1.0.0",
+  "description": "每隔一段时间自动说一句话，用于暖场、轮播公告、提醒关注。",
+  "claims": {},
+  "config": [
+    {
+      "key": "enabled",
+      "type": "switch",
+      "label": "启用定时播报",
+      "default": false,
+      "hint": "默认关闭：它会周期性占用发送间隔，开着之前请先写好文案",
+      "group": "开关"
+    },
+    {
+      "key": "intervalSec",
+      "type": "number",
+      "label": "每隔",
+      "default": 600,
+      "min": 60,
+      "max": 7200,
+      "suffix": "秒",
+      "hint": "两次播报之间的间隔。太短会被 B站 判成刷屏，60 秒是硬下限",
+      "group": "节奏"
+    },
+    {
+      "key": "onlyWhenLive",
+      "type": "switch",
+      "label": "只在直播中说",
+      "default": true,
+      "hint": "关掉的话，没开播时也会说 —— 一般不该关",
+      "group": "节奏"
+    },
+    {
+      "key": "shuffle",
+      "type": "switch",
+      "label": "随机顺序",
+      "default": false,
+      "hint": "开：每次从文案里随机挑一句。关：按顺序轮播，保证每句都会说到",
+      "group": "节奏"
+    },
+    {
+      "key": "templates",
+      "type": "lines",
+      "label": "播报文案",
+      "default": [
+        "点点关注不迷路，开播第一时间提醒你",
+        "弹幕聊起来呀，有人在吗~",
+        "喜欢的话送个小礼物，我都会念出来的"
+      ],
+      "hint": "一行一句，轮流播报。可用：{时间} {日期} {房间} {状态}",
+      "group": "文案"
+    }
+  ]
+}

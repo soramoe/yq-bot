@@ -1,0 +1,83 @@
+{
+  "id": "gift",
+  "name": "礼物答谢",
+  "version": "1.0.0",
+  "description": "有人送礼物就道谢。连击合并成一句，避免刷屏；免费礼物默认不谢。",
+  "claims": {
+    "GIFT": 100
+  },
+  "config": [
+    {
+      "key": "enabled",
+      "type": "switch",
+      "label": "启用礼物答谢",
+      "default": true,
+      "group": "开关"
+    },
+    {
+      "key": "skipFree",
+      "type": "switch",
+      "label": "跳过免费礼物",
+      "default": true,
+      "hint": "银瓜子礼物不花钱，全部答谢会盖住真正的心意",
+      "group": "开关"
+    },
+    {
+      "key": "minBattery",
+      "type": "number",
+      "label": "只答谢不低于",
+      "default": 0,
+      "min": 0,
+      "max": 100000,
+      "suffix": "电池",
+      "hint": "0 表示不限。1 电池 = 0.1 元",
+      "group": "过滤"
+    },
+    {
+      "key": "mergeOn",
+      "type": "switch",
+      "label": "连击合并",
+      "default": true,
+      "hint": "关闭后送一个谢一个，礼物快时会刷屏",
+      "group": "连击"
+    },
+    {
+      "key": "mergeSec",
+      "type": "number",
+      "label": "合并窗口",
+      "default": 8,
+      "min": 0,
+      "max": 60,
+      "suffix": "秒",
+      "hint": "窗口内同一个人送的同一个礼物合成一句",
+      "group": "连击"
+    },
+    {
+      "key": "maxWaitSec",
+      "type": "number",
+      "label": "最长等待",
+      "default": 20,
+      "min": 0,
+      "max": 300,
+      "suffix": "秒",
+      "hint": "一直送礼就一直等会把答谢憋迟到，超过这个时间必须先发一次",
+      "group": "连击"
+    },
+    {
+      "key": "template",
+      "type": "text",
+      "label": "单个礼物答谢语",
+      "default": "感谢 {用户} 的{礼物}！",
+      "hint": "可用：{用户} {礼物} {数量} {电池}",
+      "group": "文案"
+    },
+    {
+      "key": "templateMulti",
+      "type": "text",
+      "label": "多个礼物答谢语",
+      "default": "感谢 {用户} 的{礼物}×{数量}！",
+      "hint": "可用：{用户} {礼物} {数量} {电池}",
+      "group": "文案"
+    }
+  ]
+}

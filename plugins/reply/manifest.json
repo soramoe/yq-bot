@@ -1,0 +1,70 @@
+{
+  "id": "reply",
+  "name": "关键词回击",
+  "version": "1.0.0",
+  "description": "弹幕里出现指定关键词时自动回一句，用于打卡、报时、固定问答。",
+  "claims": {
+    "DANMAKU": 100
+  },
+  "config": [
+    {
+      "key": "enabled",
+      "type": "switch",
+      "label": "启用关键词回击",
+      "default": true,
+      "group": "开关"
+    },
+    {
+      "key": "rules",
+      "type": "lines",
+      "label": "规则",
+      "default": [
+        "打卡=打卡成功！今天也要开心",
+        "晚安=晚安，好梦",
+        "666=你也 666"
+      ],
+      "hint": "一行一条，格式 `关键词=回复`。想给同一个回复配多个触发词，用竖线隔开：`你好|hi|hello=你好呀`",
+      "group": "规则"
+    },
+    {
+      "key": "matchMode",
+      "type": "select",
+      "label": "匹配方式",
+      "default": "exact",
+      "options": [
+        { "value": "exact", "label": "整句相等（最安全）" },
+        { "value": "prefix", "label": "以关键词开头" },
+        { "value": "contains", "label": "包含即可（最容易误触）" }
+      ],
+      "hint": "默认整句相等：弹幕里随便提到一个词就回，在热闹的房间里会变成刷屏",
+      "group": "规则"
+    },
+    {
+      "key": "cooldownSec",
+      "type": "number",
+      "label": "同一规则冷却",
+      "default": 60,
+      "min": 0,
+      "max": 3600,
+      "suffix": "秒",
+      "hint": "同一条规则在这段时间内只回一次。0 表示不限（不建议）",
+      "group": "频率"
+    },
+    {
+      "key": "ignoreCase",
+      "type": "switch",
+      "label": "忽略英文大小写",
+      "default": true,
+      "hint": "关掉的话 `hi` 和 `Hi` 算两个不同的词",
+      "group": "规则"
+    },
+    {
+      "key": "template",
+      "type": "text",
+      "label": "回复内容",
+      "default": "{回复}",
+      "hint": "可用：{回复}（规则右边那句） {用户} {关键词} {内容}。一般不用改",
+      "group": "文案"
+    }
+  ]
+}

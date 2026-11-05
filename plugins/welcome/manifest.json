@@ -1,0 +1,153 @@
+{
+  "id": "welcome",
+  "name": "欢迎",
+  "version": "1.5.0",
+  "description": "观众进场、关注或上舰时打招呼。同一人短时间内不重复欢迎，避免进出刷屏。",
+  "claims": {
+    "ENTER": 100,
+    "FOLLOW": 100,
+    "SHARE": 100,
+    "GUARD_BUY": 100
+  },
+  "config": [
+    {
+      "key": "enabled",
+      "type": "switch",
+      "label": "启用进场欢迎",
+      "default": true,
+      "group": "开关"
+    },
+    {
+      "key": "template",
+      "type": "text",
+      "label": "进场欢迎语",
+      "default": "欢迎 {用户} 来到直播间",
+      "hint": "可用：{用户} {粉丝牌} {舰长}",
+      "group": "文案"
+    },
+    {
+      "key": "welcomeGuard",
+      "type": "switch",
+      "label": "单独欢迎上舰",
+      "default": true,
+      "hint": "关闭后，上舰不额外播报",
+      "group": "开关"
+    },
+    {
+      "key": "guardTemplate",
+      "type": "text",
+      "label": "上舰欢迎语",
+      "default": "感谢 {用户} 开通{舰长}！",
+      "hint": "可用：{用户} {粉丝牌} {舰长}",
+      "group": "文案"
+    },
+    {
+      "key": "renewTemplate",
+      "type": "text",
+      "label": "续费舰长答谢语",
+      "default": "感谢 {用户} 续费{舰长}！",
+      "hint": "按报文里的续费标记区分；留空则沿用上舰欢迎语。可用：{用户} {粉丝牌} {舰长}",
+      "group": "文案"
+    },
+    {
+      "key": "welcomeFollow",
+      "type": "switch",
+      "label": "感谢关注",
+      "default": true,
+      "hint": "关注和进场共用冷却，先到的那条生效，不会连发两条",
+      "group": "开关"
+    },
+    {
+      "key": "followTemplate",
+      "type": "text",
+      "label": "关注答谢语",
+      "default": "感谢 {用户} 关注！",
+      "hint": "可用：{用户} {粉丝牌}",
+      "group": "文案"
+    },
+    {
+      "key": "welcomeShare",
+      "type": "switch",
+      "label": "感谢分享",
+      "default": true,
+      "hint": "分享和关注、进场共用同一张冷却表，不会连发",
+      "group": "开关"
+    },
+    {
+      "key": "shareTemplate",
+      "type": "text",
+      "label": "分享答谢语",
+      "default": "谢谢 {用户} 分享直播间～",
+      "hint": "可用：{用户} {粉丝牌}",
+      "group": "文案"
+    },
+    {
+      "key": "cooldownSec",
+      "type": "number",
+      "label": "同一人冷却",
+      "default": 90,
+      "min": 0,
+      "max": 3600,
+      "suffix": "秒",
+      "hint": "0 表示不限。防止观众反复进出导致刷屏",
+      "group": "频率"
+    },
+    {
+      "key": "oncePerSession",
+      "type": "switch",
+      "label": "同一人本场只欢迎一次",
+      "default": true,
+      "hint": "90 秒冷却挡不住“一晚进出十几次”——进出间隔通常比这长。关掉就退回旧行为",
+      "group": "频率"
+    },
+    {
+      "key": "returningMode",
+      "type": "select",
+      "label": "老观众怎么处理",
+      "default": "return",
+      "options": [
+        {
+          "value": "return",
+          "label": "说欢迎回来"
+        },
+        {
+          "value": "same",
+          "label": "和新观众一样"
+        },
+        {
+          "value": "silent",
+          "label": "不打扰（静默）"
+        }
+      ],
+      "hint": "“来过”由观众簿判断，记录在你本机 data/roster 里",
+      "group": "老观众"
+    },
+    {
+      "key": "returnTemplate",
+      "type": "text",
+      "label": "老观众欢迎语",
+      "default": "欢迎回来 {用户}",
+      "hint": "只在“说欢迎回来”时使用。可用：{用户} {粉丝牌} {舰长}",
+      "group": "老观众"
+    },
+    {
+      "key": "returningDays",
+      "type": "number",
+      "label": "多久没来算新观众",
+      "default": 30,
+      "min": 0,
+      "max": 3650,
+      "suffix": "天",
+      "hint": "超过这个天数没露面，下次来仍按新观众欢迎。0 表示永远记得",
+      "group": "老观众"
+    },
+    {
+      "key": "skipMedalZero",
+      "type": "switch",
+      "label": "无粉丝牌时不显示 {粉丝牌}",
+      "default": true,
+      "hint": "关闭后，没有粉丝牌时该位置会留空",
+      "group": "文案"
+    }
+  ]
+}

@@ -1,0 +1,50 @@
+{
+  "name": "yuyue-bot-3",
+  "version": "0.2.0",
+  "private": true,
+  "description": "渔月崽三代 · B站直播间机器人（事件溯源内核）",
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "start": "node server/main.mjs",
+    "dev": "node --watch server/main.mjs",
+    "login": "node server/login-server.mjs",
+    "probe": "node server/tools/live-probe.mjs",
+    "smoke": "node server/tools/room-demo.mjs",
+    "demo": "node server/tools/welcome-demo.mjs",
+    "check": "node --test \"server/tools/**/*.test.mjs\"",
+    "check:p0": "node --test \"server/tools/check-p0.test.mjs\"",
+    "check:qr": "node --test \"server/tools/check-qr.test.mjs\"",
+    "check:login": "node --test \"server/tools/check-login.test.mjs\"",
+    "check:protocol": "node --test \"server/tools/check-protocol.test.mjs\"",
+    "check:send": "node --test \"server/tools/check-send.test.mjs\"",
+    "check:plugin": "node --test \"server/tools/check-plugin.test.mjs\"",
+    "check:gift": "node --test \"server/tools/check-gift.test.mjs\"",
+    "check:sc": "node --test \"server/tools/check-sc.test.mjs\"",
+    "check:play": "node --test \"server/tools/check-play.test.mjs\"",
+    "check:http": "node --test \"server/tools/check-http.test.mjs\"",
+    "check:config": "node --test \"server/tools/check-config.test.mjs\"",
+    "check:web": "node --test \"server/tools/check-web.test.mjs\"",
+    "check:layout": "node --test \"server/tools/check-layout.test.mjs\"",
+    "check:report": "node --test \"server/tools/check-report.test.mjs\"",
+    "check:roster": "node --test \"server/tools/check-roster.test.mjs\"",
+    "check:autocall": "node --test \"server/tools/check-autocall.test.mjs\"",
+    "check:greetings": "node --test \"server/tools/check-greetings.test.mjs\"",
+    "check:command": "node --test \"server/tools/check-command.test.mjs\"",
+    "check:p5": "node --test \"server/tools/check-p5.test.mjs\"",
+    "check:timeline": "node --test \"server/tools/check-timeline.test.mjs\"",
+    "check:pwa": "node --test \"server/tools/check-pwa.test.mjs\"",
+    "check:rooms": "node --test \"server/tools/check-rooms.test.mjs\"",
+    "icons": "node server/tools/make-icons.mjs"
+  },
+  "dependencies": {
+    "ws": "^8.22.1"
+  },
+  "_comments": {
+    "why_ws": "全项目唯一外部依赖。B站 长连必须带 Cookie，而 Node 内置 WebSocket 不支持自定义请求头。见 docs/决策记录.md D18。",
+    "why_node_test": "用内置 node:test 而不是自写断言：异步、子测试、失败定位都是现成的，零依赖。",
+    "why_rewrite": "三代不是二代的演进，是重写。二代保留在 E:\\渔月崽二代机器人 继续跑，不互通。"
+  }
+}

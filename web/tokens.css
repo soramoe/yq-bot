@@ -1,0 +1,67 @@
+/**
+ * 设计变量。
+ *
+ * 这里只允许出现「有限档位」，这是整份样式的约束来源：
+ *   间距 4 / 8 / 12 / 16 / 24 / 32
+ *   字号 12 / 13 / 14 / 15（+ 22 给大数字）
+ *   圆角 8 / 12
+ *   强调色 1 个
+ *
+ * 二代界面"乱"的根因不是配色，是例外太多：11–16 六个字号混着用，
+ * 蓝按钮、紫图标、彩虹头像、红绿状态点四种色彩语言并存。
+ * 所以这里把可选项先砍到最少，后面写错都没得写。
+ */
+
+:root {
+  color-scheme: dark;
+
+  /* ── 间距 ── */
+  --s1: 4px;
+  --s2: 8px;
+  --s3: 12px;
+  --s4: 16px;
+  --s6: 24px;
+  --s8: 32px;
+
+  /* ── 字号 ── */
+  --fs-xs: 12px;
+  --fs-sm: 13px;
+  --fs-md: 14px;
+  --fs-lg: 15px;
+  --fs-num: 22px;
+
+  --lh: 1.5;
+
+  /* ── 圆角 ── */
+  --r-card: 8px;
+  --r-panel: 12px;
+
+  /* ── 层次 ── */
+  --bg: #0b0d11;
+  --bg-1: #101318;
+  --bg-2: #151920;
+  --bg-3: #1c2129;
+  --line: #232936;
+  --line-soft: #1a1f28;
+
+  /* ── 文字 ── */
+  --text: #e8ebf1;
+  --text-2: #9aa3b2;
+  --text-3: #6a7383;
+
+  /* ── 唯一强调色 ── */
+  --accent: #4c8dff;
+  --accent-dim: rgba(76, 141, 255, 0.14);
+  --accent-line: rgba(76, 141, 255, 0.35);
+
+  /* ── 语义色：只用于"状态"和"事件类型"，不做装饰 ── */
+  --ok: #45c07d;
+  --warn: #e3a03c;
+  --bad: #e35d5d;
+  --violet: #a084ff;
+  --pink: #ef6a9e;
+  --amber: #e8894a;
+
+  --font: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Microsoft YaHei', system-ui, sans-serif;
+  --mono: ui-monospace, 'SF Mono', 'Cascadia Mono', Consolas, monospace;
+}

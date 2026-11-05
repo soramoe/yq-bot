@@ -1,0 +1,64 @@
+{
+  "id": "sc",
+  "name": "醒目留言答谢",
+  "version": "1.0.0",
+  "description": "有人发醒目留言就道谢。SC 是花钱买了置顶的，每条都单独回：不合并、不冷却。",
+  "claims": {
+    "SUPER_CHAT": 100
+  },
+  "config": [
+    {
+      "key": "enabled",
+      "type": "switch",
+      "label": "启用醒目留言答谢",
+      "default": true,
+      "group": "开关"
+    },
+    {
+      "key": "minYuan",
+      "type": "number",
+      "label": "只答谢不低于",
+      "default": 0,
+      "min": 0,
+      "max": 100000,
+      "suffix": "元",
+      "hint": "0 表示不限。注意这里是元，不是电池",
+      "group": "过滤"
+    },
+    {
+      "key": "readText",
+      "type": "switch",
+      "label": "复述留言内容",
+      "default": false,
+      "hint": "弹幕上限只有 20 字，复述长留言会被截断。默认不复述",
+      "group": "文案"
+    },
+    {
+      "key": "template",
+      "type": "text",
+      "label": "答谢语",
+      "default": "感谢{用户}的{金额}元SC！",
+      "hint": "可用：{用户} {金额} {时长} {留言}。整句弹幕上限 20 字，名字长时请再短一些",
+      "group": "文案"
+    },
+    {
+      "key": "templateWithText",
+      "type": "text",
+      "label": "复述留言时的答谢语",
+      "default": "感谢 {用户} 的 {金额} 元 SC：{留言}",
+      "hint": "只有开启「复述留言内容」才用这句。可用：{用户} {金额} {时长} {留言}",
+      "group": "文案"
+    },
+    {
+      "key": "maxTextLen",
+      "type": "number",
+      "label": "留言最多保留",
+      "default": 8,
+      "min": 0,
+      "max": 20,
+      "suffix": "字",
+      "hint": "整句弹幕上限 20 字，留言留得越长，其他部分越容易被截掉",
+      "group": "文案"
+    }
+  ]
+}
