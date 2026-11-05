@@ -12,6 +12,7 @@
 import { el, replaceChildren, svgEl } from '../core/dom.js';
 import { api } from '../core/api.js';
 import { saveBlob } from '../core/download.js';
+import { downloadPoster } from './report-poster.js';
 import { battery, duration, guardName, hhmmss, n, yuan } from '../core/format.js';
 
 /** 时间戳 → "11-02 20:00" */
@@ -199,6 +200,12 @@ export function createReports({ dlg, toast }) {
             r.implicit ? el('span', { class: 'rpt-badge warn', text: '起点未知' }) : null,
             el('span', { class: 'rpt-time', text: `${stampDate(r.startedAt)} → ${endStamp}` }),
             el('span', { class: 'spacer' }),
+            el('button', {
+              class: 'btn small poster-open',
+              text: '海报',
+              attrs: { type: 'button' },
+              on: { click: () => exportPoster(r) },
+            }),
             canOpen
               ? el('button', {
                   class: 'btn small tl-open',
@@ -912,6 +919,22 @@ export function createReports({ dlg, toast }) {
   }
 
   exportBtn.addEventListener('click', exportPage);
+
+  /**
+   * 单场海报。数据就是卡片上这份 r，不再请求服务端 ——
+   * 海报和页面上的数字必须完全一致，多一次请求就多一个对不上的机会。
+   */
+  async function exportPoster(r) {
+    try {
+      const { filename, saved } = await downloadPoster(r, { save: saveBlob, toast });
+      toast(
+        saved ? `海报已生成 ${filename}` : `已生成 ${filename}，但当前环境不能自动下载`,
+        saved ? 'info' : 'warn',
+      );
+    } catch (err) {
+      toast(`海报生成失败：${err.message}`, 'error');
+    }
+  }
 
   const node = el('div', {
     class: 'rpt-wrap',
