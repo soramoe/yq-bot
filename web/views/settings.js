@@ -43,19 +43,21 @@ const MAINTENANCE = '__maintenance';
  * @param {HTMLElement} opts.body
  * @param {HTMLElement} opts.closeBtn
  * @param {(text:string, level?:string)=>void} opts.toast
+ * @param {'plugins'|'maintenance'} [opts.mode] 同一套代码挂两种面板：
+ *   plugins 走插件 tab；maintenance 只有一个维护页（顶部菜单单独打开）
  */
-export function createSettings({ dlg, tabs, body, closeBtn, toast }) {
+export function createSettings({ dlg, tabs, body, closeBtn, toast, mode = 'plugins' }) {
   /** @type {Array<object>} 最近一次拿到的插件快照 */
   let plugins = [];
-  /** 当前选中的插件 id */
-  let current = null;
+  /** 当前选中的插件 id；维护面板固定停在维护页 */
+  let current = mode === 'maintenance' ? MAINTENANCE : null;
   let loading = false;
 
   // 插件的 tab 是横向滚动。触控板可以横扫，但 PC 的滚轮只有上下：
   // 滚轮落在 tab 条上时把它翻译成横向滚动。只有真的还能滚才拦默认行为，
-  // 滚到头之后继续滚，页面该滚还是滚。
+  // 滚到头之后继续滚，页面该滚还是滚。维护面板没有 tab 条，跳过。
   function wheelToHorizontal(e) {
-    if (e.ctrlKey || e.defaultPrevented) return;
+    if (!tabs || e.ctrlKey || e.defaultPrevented) return;
     const max = tabs.scrollWidth - tabs.clientWidth;
     if (!(max > 0)) return;
     const delta = Math.abs(e.deltaY) >= Math.abs(e.deltaX) ? e.deltaY : e.deltaX;
@@ -66,7 +68,7 @@ export function createSettings({ dlg, tabs, body, closeBtn, toast }) {
     e.preventDefault();
     tabs.scrollLeft = next;
   }
-  tabs.addEventListener('wheel', wheelToHorizontal, { passive: false });
+  if (tabs) tabs.addEventListener('wheel', wheelToHorizontal, { passive: false });
 
   async function open() {
     if (!dlg.open) dlg.showModal();
@@ -77,10 +79,13 @@ export function createSettings({ dlg, tabs, body, closeBtn, toast }) {
     if (loading) return;
     loading = true;
     try {
+      if (mode === 'maintenance') {
+        renderBody();
+        return;
+      }
       const r = await api.plugins();
       plugins = r.plugins ?? [];
-      // 维护页不是插件，不能被"找不到就重置"的逻辑冲掉
-      if (current !== MAINTENANCE && !plugins.some((p) => p.id === current)) {
+      if (!plugins.some((p) => p.id === current)) {
         current = plugins[0]?.id ?? null;
       }
       renderTabs();
@@ -96,12 +101,9 @@ export function createSettings({ dlg, tabs, body, closeBtn, toast }) {
   /* ────────────────────────── 顶部 tab ────────────────────────── */
 
   function renderTabs() {
-    // 维护排在插件前面：它是"这台机器"的设置，插件是"玩法"，
-    // 找"检查更新 / 导出诊断"的人不该先翻过五个插件
-    const list = [
-      { id: MAINTENANCE, name: '维护' },
-      ...plugins.map((p) => ({ id: p.id, name: p.name ?? p.id })),
-    ];
+    // 维护已经挪到顶部菜单，插件面板只列插件
+    if (!tabs) return;
+    const list = plugins.map((p) => ({ id: p.id, name: p.name ?? p.id }));
     replaceChildren(
       tabs,
       list.map((t) =>
@@ -128,8 +130,8 @@ export function createSettings({ dlg, tabs, body, closeBtn, toast }) {
   }
 
   function renderBody() {
-    // 维护页要异步读状态，单独走一条路
-    if (current === MAINTENANCE) {
+    // 维护面板只有一个页面；插件面板才按当前 tab 走
+    if (mode === 'maintenance' || current === MAINTENANCE) {
       void renderMaintenance();
       return;
     }
@@ -257,6 +259,32 @@ export function createSettings({ dlg, tabs, body, closeBtn, toast }) {
           el('div', {
             class: 'plg-hint',
             text: '扫码成功后自动重连房间，不用重启服务；凭证只保存在本机 data/auth.json',
+          }),
+        ],
+      }),
+    );
+
+    /* ── 使用说明 ── */
+    nodes.push(el('div', { class: 'plg-group', text: '使用说明' }));
+    nodes.push(
+      el('div', { class: 'plg-field' }, {
+        children: [
+          el('div', {
+            class: 'plg-hint',
+            text: '安装、启停、换房间、换账号、更新和常见问题，都写在仓库的文档里。',
+          }),
+          el('div', { class: 'side-actions' }, {
+            children: [
+              el('button', {
+                class: 'btn small',
+                attrs: { type: 'button' },
+                text: '打开 GitHub 使用说明',
+                on: {
+                  click: () =>
+                    window.open('https://github.com/soramoe/yq-bot/blob/main/docs/guide.md', '_blank', 'noopener'),
+                },
+              }),
+            ],
           }),
         ],
       }),

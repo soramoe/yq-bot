@@ -276,28 +276,49 @@ async function mount(t, options = {}) {
   const closeBtn = new FakeNode('button')
 
   const toasts = []
+  const toast = (text, level) => toasts.push({ text, level })
   const settings = createSettings({
     dlg,
     tabs,
     body,
     closeBtn,
-    toast: (text, level) => toasts.push({ text, level }),
+    toast,
   })
 
-  return { settings, tabs, body, calls, toasts, snapshot }
+  // 维护面板现在是独立入口，和插件面板共用渲染但各自一个 dialog
+  const mDlg = new FakeNode('dialog')
+  mDlg.open = false
+  mDlg.showModal = () => {
+    mDlg.open = true
+  }
+  mDlg.close = () => {
+    mDlg.open = false
+  }
+  const mBody = new FakeNode('div')
+  const mClose = new FakeNode('button')
+  const maintenance = createSettings({
+    dlg: mDlg,
+    tabs: null,
+    body: mBody,
+    closeBtn: mClose,
+    toast,
+    mode: 'maintenance',
+  })
+
+  return { settings, maintenance, tabs, body, mBody, calls, toasts, snapshot }
 }
 
-test('面板：顶部先是固定的「维护」，之后按插件生成 tab', async (t) => {
+test('面板：插件 tab 只列插件，「维护」已经挪到顶部菜单', async (t) => {
   const { settings, tabs, snapshot } = await mount(t)
   await settings.open()
 
   const list = tabs.all('plg-tab')
-  assert.equal(list.length, snapshot.plugins.length + 1, '插件数 + 一个固定的「维护」')
-  assert.equal(list[0].textContent, '维护', '维护排在最前：找"检查更新/导出诊断"的人不该翻过所有插件')
+  assert.equal(list.length, snapshot.plugins.length, '插件面板里不该再有「维护」tab')
   assert.deepEqual(
-    list.slice(1).map((x) => x.textContent),
+    list.map((x) => x.textContent),
     snapshot.plugins.map((p) => p.name),
   )
+  assert.equal(list.some((x) => x.textContent === '维护'), false)
 })
 
 test('面板：插件多到装不下时，PC 滚轮落在 tab 条上要能横向滚动', async (t) => {
@@ -1316,28 +1337,52 @@ test('侧栏：访问口令面板随状态切换「开启 / 解锁」', async ()
 })
 
 test('设置页：「维护」里有更新检查与诊断包，且检查更新会真的发请求', async (t) => {
-  const { settings, tabs, body, calls } = await mount(t)
+  const { settings, maintenance, mBody, calls, body } = await mount(t)
   await settings.open()
-
-  pick(tabs, '维护')
+  await maintenance.open()
   // renderMaintenance 是异步的（要读一次 /api/status）
   await new Promise((r) => setImmediate(r))
 
-  assert.match(body.textContent, /当前版本 0\.2\.0/)
-  assert.match(body.textContent, /更新源/)
-  assert.match(body.textContent, /诊断包/)
-  assert.match(body.textContent, /不含 Cookie/, '要明确告诉用户这个包可以发给别人')
+  assert.match(mBody.textContent, /当前版本 0\.2\.0/)
+  assert.match(mBody.textContent, /更新源/)
+  assert.match(mBody.textContent, /诊断包/)
+  assert.match(mBody.textContent, /不含 Cookie/, '要明确告诉用户这个包可以发给别人')
 
-  const check = body.all('btn').find((b) => b.textContent === '检查更新')
+  const check = mBody.all('btn').find((b) => b.textContent === '检查更新')
   assert.ok(check, '要有检查更新按钮')
   await check.listeners.click[0]()
   await new Promise((r) => setImmediate(r))
   assert.ok(calls.some((c) => c.path === '/api/update/check'), '按钮要真的发请求，不能只改文字')
-  assert.match(body.textContent, /已是最新/)
+  assert.match(mBody.textContent, /已是最新/)
 
-  // 从维护切回插件，插件面板不能被"维护页"的状态污染
-  pick(tabs, '欢迎')
-  assert.ok(body.all('plg-field').length > 0)
+  // 维护面板是独立 dialog，打开它不能把插件面板的内容冲掉
+  assert.ok(body.all('plg-field').length > 0, '插件面板应保持原样')
+  assert.ok(mBody.all('plg-field').length > 0, '维护面板自己要有内容')
+})
+
+test('入口：维护在顶部独立菜单，插件列表不再有它；使用说明链到 GitHub 文档', () => {
+  const html = readFileSync(join(process.cwd(), 'web/index.html'), 'utf8')
+  assert.match(html, /id="btn-maint"/, '顶部要有维护入口')
+  assert.match(html, /id="dlg-maint"/, '维护要有自己的 dialog')
+
+  const app = readFileSync(join(process.cwd(), 'web/app.js'), 'utf8')
+  assert.match(app, /btnMaint\.addEventListener/, '顶部按钮要绑到维护面板')
+  assert.match(app, /mode: 'maintenance'/, '维护面板用独立模式创建')
+
+  const settingsSrc = readFileSync(join(process.cwd(), 'web/views/settings.js'), 'utf8')
+  assert.doesNotMatch(settingsSrc, /name: '维护'/, '插件 tab 里不能再生成维护')
+  assert.match(
+    settingsSrc,
+    /github\.com\/soramoe\/yq-bot\/blob\/main\/docs\/guide\.md/,
+    '维护页要有跳去 GitHub 使用说明的入口',
+  )
+
+  const guide = readFileSync(join(process.cwd(), 'docs/guide.md'), 'utf8')
+  assert.match(guide, /scripts\\install\.bat/, '使用说明要写清安装入口')
+  assert.match(guide, /8900/, '使用说明要写页面地址')
+
+  const launcher = readFileSync(join(process.cwd(), '启动渔情.bat'), 'utf8')
+  assert.match(launcher, /scripts\\start\.bat/, '根目录快捷入口要复用 scripts 里的启动逻辑')
 })
 
 test('设置页：更新包下载完才出现「重启并应用」，应用前必须确认', async (t) => {
@@ -1351,17 +1396,16 @@ test('设置页：更新包下载完才出现「重启并应用」，应用前�
     size: 1024,
     notes: '测试版本',
   }
-  const { settings, tabs, body, calls } = await mount(t, { update })
+  const { settings, maintenance, mBody, calls } = await mount(t, { update })
   await settings.open()
-
-  pick(tabs, '维护')
+  await maintenance.open()
   await new Promise((r) => setImmediate(r))
 
-  const dl = body.all('btn').find((b) => b.textContent === '下载更新包')
+  const dl = mBody.all('btn').find((b) => b.textContent === '下载更新包')
   assert.ok(dl, '有新版本且带 download 时要出现下载按钮')
   assert.notEqual(dl.style.display, 'none')
 
-  const apply = body.all('btn').find((b) => b.textContent === '重启并应用')
+  const apply = mBody.all('btn').find((b) => b.textContent === '重启并应用')
   assert.ok(apply, '要有应用按钮')
   assert.equal(apply.style.display, 'none', '没下载前不能出现「重启并应用」')
 

@@ -91,6 +91,10 @@ const dom = {
   plgTabs: $('#plg-tabs'),
   plgBody: $('#plg-body'),
   plgClose: $('#plg-close'),
+  btnMaint: $('#btn-maint'),
+  dlgMaint: $('#dlg-maint'),
+  maintBody: $('#maint-body'),
+  maintClose: $('#maint-close'),
   toasts: $('#toasts'),
 };
 
@@ -110,6 +114,17 @@ const settings = createSettings({
   body: dom.plgBody,
   closeBtn: dom.plgClose,
   toast,
+});
+
+// 维护面板和插件面板共用一套渲染：更新、镜像、诊断、换账号都在这里，
+// 但它不再是插件列表里的一个 tab —— 它是"这台机器"的设置。
+const maintenance = createSettings({
+  dlg: dom.dlgMaint,
+  tabs: null,
+  body: dom.maintBody,
+  closeBtn: dom.maintClose,
+  toast,
+  mode: 'maintenance',
 });
 
 const reports = createReports({ dlg: dom.dlgReports, toast });
@@ -432,6 +447,7 @@ function handle(msg) {
     case 'plugins':
       // 别的标签页改了插件配置：面板开着就同步，没开就不要白拉一次接口
       if (dom.dlgPlugins?.open) settings.reload();
+      if (dom.dlgMaint?.open) maintenance.reload();
       break;
 
     case 'songs':
@@ -533,6 +549,7 @@ dom.dlg.addEventListener('close', stopRoomPoll);
 $('#room-cancel').addEventListener('click', () => dom.dlg.close());
 
 dom.btnPlugins.addEventListener('click', () => settings.open());
+dom.btnMaint.addEventListener('click', () => maintenance.open());
 
 /* ── 房间总览 ── */
 
