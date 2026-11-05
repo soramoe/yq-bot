@@ -224,7 +224,7 @@ export async function startLoginServer(opts = {}) {
   const url = `http://${host}:${port}`;
 
   log('');
-  log('  渔情B站直播助手机器人 · 扫码登录');
+  log('  渔情LiveBot · 扫码登录');
   log(`  ${auth.describe()}`);
   log('');
 

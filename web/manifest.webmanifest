@@ -1,6 +1,6 @@
 {
-  "name": "渔情B站直播助手机器人 · 观测台",
-  "short_name": "渔情助手",
+  "name": "渔情LiveBot · 观测台",
+  "short_name": "渔情LiveBot",
   "description": "B站直播间机器人的观测台：实时事件流、本场统计、战报与时间轴回看",
   "lang": "zh-CN",
   "dir": "ltr",

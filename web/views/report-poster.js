@@ -57,7 +57,7 @@ export function posterLines(report = {}) {
     .map((g) => `${g.name} × ${Number(g.count) || 0}`);
 
   return {
-    kicker: '渔情B站直播助手机器人 · 直播战报',
+    kicker: '渔情LiveBot · 直播战报',
     date,
     time,
     duration: report.closed === false && report.stale ? '本场已中断' : `${prefix}${durText(report.durationSec)}`,

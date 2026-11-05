@@ -79,7 +79,7 @@ function report(over) {
 
 test('战报海报：标题、日期、四项现场数据与收入都来自同一个场次', () => {
   const L = posterLines(report());
-  assert.equal(L.kicker, '渔情B站直播助手机器人 · 直播战报');
+  assert.equal(L.kicker, '渔情LiveBot · 直播战报');
   assert.equal(L.date, '2026.11.05');
   assert.equal(L.time, '20:00');
   assert.equal(L.duration, '2 小时 14 分');
@@ -125,7 +125,7 @@ test('战报海报：1080×1350 画布上确实写进了标题、日期、总收
   drawPoster(ctx, report());
   assert.deepEqual(rects[0], [0, 0, 1080, 1350]);
   const all = texts.map((t) => t.text);
-  assert.ok(all.includes('渔情B站直播助手机器人 · 直播战报'));
+  assert.ok(all.includes('渔情LiveBot · 直播战报'));
   assert.ok(all.includes('2026.11.05'));
   assert.ok(all.includes('¥442'));
   assert.ok(all.includes('数据来自直播间日志 · 金额单位：元'));

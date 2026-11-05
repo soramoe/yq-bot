@@ -2625,7 +2625,7 @@ export class App {
       });
       const res = await sendPush(this.pushProvider, this.pushTarget, text, {
         fetchImpl: this.fetchImpl,
-        title: '渔情B站直播助手机器人 · 周报',
+        title: '渔情LiveBot · 周报',
       });
       if (res.ok) {
         this.log.info(`[周报] 已推送（${summary.sessions} 场）`);

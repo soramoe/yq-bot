@@ -103,7 +103,7 @@ function serverchanKeyLooksOk(key) {
  * @param {{title?:string}} [opts]
  * @returns {{url:string, init:object}|null}
  */
-export function buildPushRequest(provider, target, text, { title = '渔情B站直播助手机器人' } = {}) {
+export function buildPushRequest(provider, target, text, { title = '渔情LiveBot' } = {}) {
   if (pushTargetProblem(provider, target)) return null;
   const body = String(text ?? '');
   const t = String(target ?? '').trim();
@@ -114,7 +114,7 @@ export function buildPushRequest(provider, target, text, { title = '渔情B站�
     const u = new URL(base);
     u.pathname = `${u.pathname.replace(/\/+$/, '')}/${encodeURIComponent(body)}`;
     u.searchParams.set('title', title);
-    u.searchParams.set('group', '渔情直播助手');
+    u.searchParams.set('group', '渔情LiveBot');
     u.searchParams.set('level', 'active');
     return { url: u.toString(), init: { method: 'GET' } };
   }

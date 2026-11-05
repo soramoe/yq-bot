@@ -338,17 +338,17 @@ export function createSettings({ dlg, tabs, body, closeBtn, toast, mode = 'plugi
         children: [
           el('div', {
             class: 'plg-hint',
-            text: '安装、启停、换房间、换账号、更新和常见问题，都写在仓库的文档里。',
+            text: '安装、启停、换房间、换账号、更新和常见问题，都写在线使用手册里。',
           }),
           el('div', { class: 'side-actions' }, {
             children: [
               el('button', {
                 class: 'btn small',
                 attrs: { type: 'button' },
-                text: '打开 GitHub 使用说明',
+                text: '打开在线使用手册',
                 on: {
                   click: () =>
-                    window.open('https://github.com/soramoe/yq-bot/blob/main/docs/guide.md', '_blank', 'noopener'),
+                    window.open('https://xhz6.com/blog/yuqing-livebot-manual-1-0-5/', '_blank', 'noopener'),
                 },
               }),
             ],

@@ -698,7 +698,7 @@ export function buildRoutes(app) {
     }
     const result = await sendPush(provider, target, '这是一条测试推送，收到就说明手机推送通了。', {
       fetchImpl: app.fetchImpl,
-      title: '渔情B站直播助手机器人 · 测试',
+      title: '渔情LiveBot · 测试',
     });
     sendJson(res, {
       ok: true,

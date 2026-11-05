@@ -75,7 +75,7 @@ jobs:
           gh release create "$GITHUB_REF_NAME" \
             "$RUNNER_TEMP/yuyue3-${VERSION}.tar.gz" \
             latest.json \
-            --title "渔月崽三代 v${VERSION}" \
+            --title "渔情LiveBot v${VERSION}" \
             --generate-notes
 
       # 安装 zip 和更新 tar 走同一份文件清单：tar 给更新器，zip 给人下载。

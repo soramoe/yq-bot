@@ -1375,8 +1375,8 @@ test('入口：维护在顶部独立菜单，插件列表不再有它；使用�
   assert.doesNotMatch(settingsSrc, /name: '维护'/, '插件 tab 里不能再生成维护')
   assert.match(
     settingsSrc,
-    /github\.com\/soramoe\/yq-bot\/blob\/main\/docs\/guide\.md/,
-    '维护页要有跳去 GitHub 使用说明的入口',
+    /xhz6\.com\/blog\/yuqing-livebot-manual-1-0-5\//,
+    '维护页要有在线使用手册的入口',
   )
 
   const guide = readFileSync(join(process.cwd(), 'docs/guide.md'), 'utf8')
