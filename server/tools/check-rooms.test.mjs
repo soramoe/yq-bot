@@ -152,7 +152,7 @@ class FakeRunner extends EventEmitter {
 
 /** 一个计数器，保证每次构造的实例都能被找到 */
 const made = []
-function makeApp(t, { rooms = ['100'], activeRoomId = '', cfg = {}, fetchImpl, log } = {}) {
+function makeApp(t, { rooms = ['100'], activeRoomId = '', cfg = {}, fetchImpl, log, createObs } = {}) {
   const dataDir = mkdtempSync(join(tmpdir(), 'yy3-rooms-'))
   if (Object.keys(cfg).length || rooms.length) {
     writeFileSync(
@@ -170,6 +170,7 @@ function makeApp(t, { rooms = ['100'], activeRoomId = '', cfg = {}, fetchImpl, l
     dryRun: true,
     log: log ?? SILENT,
     fetchImpl,
+    createObs,
     createRunner: (args) => {
       const r = new FakeRunner(args)
       made.push(r)
@@ -2210,4 +2211,115 @@ test('接口：/api/push/test 未配置时 400，配好后能返回发送结果'
   assert.equal(sent.statusCode, 200)
   assert.equal(JSON.parse(sent.body).sent, true)
   assert.equal(calls.at(-1).url, 'https://sctapi.ftqq.com/123456789.send')
+})
+
+/* ══════════════════ OBS 场景联动 ══════════════════ */
+
+test('接口：/api/obs 保存不落密码原文，GET 只回 passwordSet', async (t) => {
+  const { app, dataDir } = makeApp(t, { rooms: ['100'] })
+  await app.start()
+
+  const routes = buildRoutes(app)
+  const { Readable } = await import('node:stream')
+  const post = async (body) => {
+    const res = fakeRes()
+    const req = Readable.from([Buffer.from(JSON.stringify(body))])
+    req.headers = { 'content-type': 'application/json' }
+    await routes.match('POST', '/api/obs').handler({
+      req,
+      res,
+      url: new URL('http://x/api/obs'),
+      app,
+    })
+    return res
+  }
+
+  const saved = await post({
+    enabled: true,
+    url: 'ws://127.0.0.1:4455',
+    password: 'supersecret',
+    liveScene: '直播中',
+    offlineScene: '闲聊',
+  })
+  assert.equal(saved.statusCode, 200)
+
+  const res = fakeRes()
+  await routes.match('GET', '/api/obs').handler({ res, url: new URL('http://x/api/obs'), app })
+  const view = JSON.parse(res.body)
+  assert.equal(view.enabled, true)
+  assert.equal(view.url, 'ws://127.0.0.1:4455')
+  assert.equal(view.liveScene, '直播中')
+  assert.equal(view.offlineScene, '闲聊')
+  assert.equal(view.passwordSet, true)
+  assert.equal('password' in view, false, '密码不能回传')
+
+  const disk = JSON.parse(readFileSync(join(dataDir, 'app.json'), 'utf8'))
+  assert.equal(disk.obsPassword, 'supersecret', '密码只存在本机配置里')
+
+  const bad = await post({ enabled: true, url: 'http://127.0.0.1:4455' })
+  assert.equal(bad.statusCode, 400)
+  assert.equal(JSON.parse(bad.body).error.code, 'bad_obs')
+
+  const empty = await post({ enabled: true, url: '' })
+  assert.equal(empty.statusCode, 400)
+  assert.match(JSON.parse(empty.body).error.message, /不能为空/)
+
+  const cleared = await post({ clearPassword: true })
+  assert.equal(cleared.statusCode, 200)
+  assert.equal(app.obsPassword, '')
+})
+
+test('OBS：开播/下播边沿各切一次场景，密码跟着配置走', async (t) => {
+  const calls = []
+  const createObs = (opts) => ({
+    request: async (type, data) => {
+      calls.push({ opts, type, data })
+    },
+    close: () => calls.push({ closed: true }),
+  })
+  const { app } = makeApp(t, {
+    rooms: ['100'],
+    cfg: {
+      obsEnabled: true,
+      obsUrl: 'ws://127.0.0.1:4455',
+      obsPassword: 'pw',
+      obsLiveScene: '直播中',
+      obsOfflineScene: '闲聊',
+    },
+    createObs,
+  })
+  await app.start()
+
+  const runner = app.rooms.get('100').runner
+  const requests = () => calls.filter((c) => c.type)
+  runner.push({ seq: 1, ts: Date.now(), type: 'LIVE_START', payload: {} }, 'live_started')
+  await new Promise((r) => setTimeout(r, 30))
+  assert.equal(requests().length, 1)
+  assert.equal(requests()[0].data.sceneName, '直播中')
+  assert.equal(requests()[0].opts.url, 'ws://127.0.0.1:4455')
+  assert.equal(requests()[0].opts.password, 'pw')
+
+  runner.push({ seq: 2, ts: Date.now(), type: 'LIVE_END', payload: {} }, 'live_ended')
+  await new Promise((r) => setTimeout(r, 30))
+  assert.equal(requests().length, 2)
+  assert.equal(requests()[1].data.sceneName, '闲聊')
+  assert.ok(calls.some((c) => c.closed === true), '切完要关连接')
+
+  // 同场景重复边沿不再连一次
+  const before = calls.length
+  runner.push({ seq: 3, ts: Date.now(), type: 'LIVE_END', payload: {} }, 'live_ended')
+  await new Promise((r) => setTimeout(r, 30))
+  assert.equal(calls.length, before)
+})
+
+test('OBS：启动时坏地址整组忽略，不拿半套配置去连', async (t) => {
+  const warns = []
+  const { app } = makeApp(t, {
+    rooms: ['100'],
+    cfg: { obsEnabled: true, obsUrl: 'http://127.0.0.1:4455', obsLiveScene: '直播中' },
+    log: { info() {}, warn: (m) => warns.push(String(m)) },
+  })
+  await app.start()
+  assert.equal(app.obsEnabled, false)
+  assert.ok(warns.some((m) => m.includes('OBS 地址无效')))
 })

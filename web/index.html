@@ -103,6 +103,24 @@
             <input id="push-weekly" type="checkbox" /> 每周一 10:00 把最近 7 天的周报推到手机
           </label>
         </div>
+        <div class="room-obs">
+          <label class="room-notify-check" for="obs-enabled">
+            <input id="obs-enabled" type="checkbox" /> 开播 / 下播时切 OBS 场景
+          </label>
+          <div class="room-notify-row">
+            <input id="obs-url" type="text" autocomplete="off" spellcheck="false" placeholder="ws://127.0.0.1:4455" />
+          </div>
+          <div class="room-notify-row">
+            <input id="obs-password" type="password" autocomplete="new-password" placeholder="OBS WebSocket 密码（没设密码就留空）" />
+            <button class="btn" type="button" id="obs-clear-pass">清空密码</button>
+          </div>
+          <div class="room-notify-row">
+            <input id="obs-live-scene" type="text" autocomplete="off" spellcheck="false" placeholder="开播切到场景名" />
+            <input id="obs-offline-scene" type="text" autocomplete="off" spellcheck="false" placeholder="下播切回场景名" />
+            <button class="btn" type="button" id="obs-save">保存 OBS</button>
+          </div>
+          <p class="room-goal-hint" id="obs-hint"></p>
+        </div>
         <div class="room-goal">
           <label for="goal-input">本场礼物目标（元，0 = 关闭；下播再开重新算）</label>
           <div class="room-notify-row">

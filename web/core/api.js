@@ -187,6 +187,9 @@ export const api = {
       body: weekly === undefined ? { provider, target } : { provider, target, weekly },
     }),
   testPush: () => request('/api/push/test', { method: 'POST', body: {} }),
+  /** OBS 场景联动：读回来的配置不带密码原文 */
+  obs: () => request('/api/obs'),
+  saveObs: (settings) => request('/api/obs', { method: 'POST', body: settings }),
   savePluginConfig: (id, patch) =>
     request(`/api/plugins/${encodeURIComponent(id)}/config`, { method: 'POST', body: patch }),
   resetPluginConfig: (id) =>

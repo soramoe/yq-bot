@@ -2295,3 +2295,147 @@ test('手机推送：周报控件必须真的接到页面与 app.js', () => {
   assert.match(app, /weekBox:\s*dom\.pushWeekly/)
 })
 
+/* ══════════════════ OBS 场景联动 ══════════════════ */
+
+async function mountObs({
+  enabled = false,
+  url = '',
+  liveScene = '',
+  offlineScene = '',
+  passwordSet = false,
+  fail = '',
+} = {}) {
+  const { createObsConfig } = await import('../../web/views/obs-config.js')
+  const enabledBox = new FakeNode('input')
+  const urlInput = new FakeNode('input')
+  const passwordInput = new FakeNode('input')
+  const liveInput = new FakeNode('input')
+  const offlineInput = new FakeNode('input')
+  const saveButton = new FakeNode('button')
+  const clearButton = new FakeNode('button')
+  const hint = new FakeNode('p')
+  const saved = []
+  const toasts = []
+  let view = { enabled, url, liveScene, offlineScene, passwordSet }
+  const api = {
+    obs: async () => ({ ok: true, ...view }),
+    saveObs: async (payload) => {
+      if (fail) throw new Error(fail)
+      saved.push(payload)
+      view = {
+        enabled: Boolean(payload.enabled),
+        url: payload.url ?? '',
+        liveScene: payload.liveScene ?? '',
+        offlineScene: payload.offlineScene ?? '',
+        passwordSet: payload.clearPassword ? false : Boolean(payload.password) || view.passwordSet,
+      }
+      return { ok: true, ...view }
+    },
+  }
+  const cfg = createObsConfig({
+    enabledBox,
+    urlInput,
+    passwordInput,
+    liveInput,
+    offlineInput,
+    saveButton,
+    clearButton,
+    hint,
+    api,
+    toast: (text, level) => toasts.push({ text, level }),
+  })
+  return {
+    cfg,
+    enabledBox,
+    urlInput,
+    passwordInput,
+    liveInput,
+    offlineInput,
+    saveButton,
+    clearButton,
+    hint,
+    saved,
+    toasts,
+  }
+}
+
+test('OBS 设置：打开时回填地址与场景，密码只提示已设置', async () => {
+  const { cfg, enabledBox, urlInput, liveInput, offlineInput, passwordInput, hint } = await mountObs({
+    enabled: true,
+    url: 'ws://127.0.0.1:4455',
+    liveScene: '直播中',
+    offlineScene: '闲聊',
+    passwordSet: true,
+  })
+  await cfg.load()
+  assert.equal(enabledBox.checked, true)
+  assert.equal(urlInput.value, 'ws://127.0.0.1:4455')
+  assert.equal(liveInput.value, '直播中')
+  assert.equal(offlineInput.value, '闲聊')
+  assert.equal(passwordInput.value, '')
+  assert.match(passwordInput.placeholder, /留空表示不改/)
+  assert.match(hint.textContent, /留空表示不改/)
+})
+
+test('OBS 设置：密码留空表示不改，保存时不发 password 字段', async () => {
+  const { cfg, urlInput, passwordInput, liveInput, saved } = await mountObs({
+    enabled: true,
+    url: 'ws://127.0.0.1:4455',
+    liveScene: '直播中',
+    passwordSet: true,
+  })
+  urlInput.value = 'ws://127.0.0.1:4466'
+  liveInput.value = '主画面'
+  passwordInput.value = ''
+  await cfg.save(false)
+  assert.equal(saved.length, 1)
+  assert.equal(saved[0].password, undefined)
+  assert.equal(saved[0].clearPassword, false)
+  assert.equal(saved[0].url, 'ws://127.0.0.1:4466')
+})
+
+test('OBS 设置：清空密码走 clearPassword', async () => {
+  const { cfg, passwordInput, saved } = await mountObs({
+    enabled: true,
+    url: 'ws://127.0.0.1:4455',
+    passwordSet: true,
+  })
+  passwordInput.value = 'something'
+  await cfg.save(true)
+  assert.equal(saved[0].clearPassword, true)
+  assert.equal(saved[0].password, undefined)
+})
+
+test('OBS 设置：勾了联动却不填地址，不发请求', async () => {
+  const { cfg, enabledBox, urlInput, saved, toasts } = await mountObs({ enabled: false })
+  enabledBox.checked = true
+  urlInput.value = ''
+  await cfg.save(false)
+  assert.equal(saved.length, 0)
+  assert.match(toasts.at(-1).text, /不能为空/)
+})
+
+test('OBS 设置：保存失败保留输入并提示', async () => {
+  const { cfg, urlInput, saved, toasts } = await mountObs({
+    enabled: true,
+    url: 'ws://127.0.0.1:4455',
+    fail: '写不进配置',
+  })
+  urlInput.value = 'ws://127.0.0.1:4477'
+  await cfg.save(false)
+  assert.equal(saved.length, 0)
+  assert.equal(urlInput.value, 'ws://127.0.0.1:4477')
+  assert.match(toasts.at(-1).text, /保存 OBS 设置失败/)
+})
+
+test('OBS 设置：控件必须真的接到页面与 app.js', () => {
+  const html = readFileSync(join(process.cwd(), 'web/index.html'), 'utf8')
+  const app = readFileSync(join(process.cwd(), 'web/app.js'), 'utf8')
+  for (const id of ['obs-enabled', 'obs-url', 'obs-password', 'obs-live-scene', 'obs-offline-scene', 'obs-save']) {
+    assert.ok(html.includes(`id="${id}"`), `index.html 里没有 #${id}`)
+  }
+  assert.match(app, /createObsConfig\(/)
+  assert.match(app, /obsEnabled:\s*\$\('#obs-enabled'\)/)
+  assert.match(app, /obsConfig\.load\(\)/)
+})
+

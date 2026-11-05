@@ -614,6 +614,38 @@ export function buildRoutes(app) {
     });
   });
 
+  /* OBS 场景联动。
+     密码永不回传：GET 只给 passwordSet，页面据此显示"已设置/未设置"。 */
+  r.get('/api/obs', ({ res }) => {
+    sendJson(res, { ok: true, ...app.obsView() });
+  });
+
+  r.post('/api/obs', async ({ req, res }) => {
+    const body = await readJson(req);
+    if (body === null || typeof body !== 'object' || Array.isArray(body)) {
+      sendError(res, 400, 'bad_request', '需要 { "enabled": true, "url": "ws://127.0.0.1:4455", "liveScene": "直播中", "offlineScene": "闲聊" }');
+      return;
+    }
+    let saved;
+    try {
+      saved = app.setObsSettings({
+        enabled: body.enabled,
+        url: body.url,
+        password: body.password,
+        clearPassword: body.clearPassword === true,
+        liveScene: body.liveScene,
+        offlineScene: body.offlineScene,
+      });
+    } catch (err) {
+      if (err?.status) {
+        sendError(res, err.status, err.code ?? 'bad_request', err.message);
+        return;
+      }
+      throw err;
+    }
+    sendJson(res, { ok: true, ...saved });
+  });
+
   /* 付费用户档案。
      与战报同一个数据源（日志重放）、同一套金额口径（电池），
      区别只在于按 uid 跨场次聚合 —— 页面上的名字和数字不能自己再算一遍。 */

@@ -20,6 +20,7 @@ import { createStream } from './views/stream.js';
 import { createNotifyConfig } from './views/notify-config.js';
 import { createGoalConfig } from './views/goal-config.js';
 import { createPushConfig } from './views/push-config.js';
+import { createObsConfig } from './views/obs-config.js';
 import { createPatrons } from './views/patrons.js';
 import { createScQueue } from './views/sc-queue.js';
 import { createSongQueue } from './views/song-queue.js';
@@ -74,6 +75,14 @@ const dom = {
   pushTest: $('#push-test'),
   pushHint: $('#push-hint'),
   pushWeekly: $('#push-weekly'),
+  obsEnabled: $('#obs-enabled'),
+  obsUrl: $('#obs-url'),
+  obsPassword: $('#obs-password'),
+  obsLiveScene: $('#obs-live-scene'),
+  obsOfflineScene: $('#obs-offline-scene'),
+  obsSave: $('#obs-save'),
+  obsClearPass: $('#obs-clear-pass'),
+  obsHint: $('#obs-hint'),
   dlgPlugins: $('#dlg-plugins'),
   plgTabs: $('#plg-tabs'),
   plgBody: $('#plg-body'),
@@ -143,6 +152,20 @@ const pushConfig = createPushConfig({
   testButton: dom.pushTest,
   hint: dom.pushHint,
   weekBox: dom.pushWeekly,
+  api,
+  toast,
+});
+
+// OBS 场景联动：机器级设置，密码单向
+const obsConfig = createObsConfig({
+  enabledBox: dom.obsEnabled,
+  urlInput: dom.obsUrl,
+  passwordInput: dom.obsPassword,
+  liveInput: dom.obsLiveScene,
+  offlineInput: dom.obsOfflineScene,
+  saveButton: dom.obsSave,
+  clearButton: dom.obsClearPass,
+  hint: dom.obsHint,
   api,
   toast,
 });
@@ -484,6 +507,7 @@ dom.btnRoom.addEventListener('click', () => {
   notifyConfig.load();
   goalConfig.load();
   pushConfig.load();
+  obsConfig.load();
   // 打开期间每 2 秒刷一次：多房间的用处就是"一眼扫过去"，不刷新等于看快照
   startRoomPoll();
   dom.roomInput.focus();

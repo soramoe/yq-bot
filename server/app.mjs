@@ -21,6 +21,7 @@ import { UpdateChecker } from './core/update.mjs';
 import { buildDiagnostic } from './core/diagnostic.mjs';
 import { maskWebhook, notifyText, reportText, sendWebhook } from './core/notify.mjs';
 import { pushTargetProblem, sendPush } from './core/push.mjs';
+import { createObsClient } from './core/obs.mjs';
 import { buildScQueue, MAX_READ_IDS } from './core/sc-queue.mjs';
 import {
   MAX_SONG_ITEMS,
@@ -84,11 +85,12 @@ export class App {
    * @param {(args:object)=>import('./room-runner.mjs').RoomRunner} [opts.createRunner]
    *   运行体工厂。默认就是 `new RoomRunner`；测试注入假的，就不必连 B站。
    */
-  constructor({ dataDir, roomId, dryRun = true, pluginsDir = null, log = SILENT_LOG, createRunner = null, fetchImpl = null }) {
+  constructor({ dataDir, roomId, dryRun = true, pluginsDir = null, log = SILENT_LOG, createRunner = null, createObs = null, fetchImpl = null }) {
     this.dataDir = dataDir;
     this.pluginsDir = pluginsDir;
     this.log = log;
     this.createRunner = createRunner ?? ((args) => new RoomRunner(args));
+    this.createObs = createObs ?? createObsClient;
     /** webhook 用的 fetch：默认用全局的，自检里注入记录器 */
     this.fetchImpl = fetchImpl;
 
@@ -164,6 +166,20 @@ export class App {
      */
     this.weeklyReport = false;
     this._weeklyTimer = null;
+
+    /**
+     * OBS 场景联动：开播切「直播中」、下播切回闲聊场景。
+     *
+     * 不常驻连接 —— 每次边沿连一次、切完就关。密码只存在本机 app.json，
+     * 读取接口不回传，只告诉页面"设过没有"。
+     */
+    this.obsEnabled = false;
+    this.obsUrl = '';
+    this.obsPassword = '';
+    this.obsLiveScene = '';
+    this.obsOfflineScene = '';
+    this._obsBusy = false;
+    this._obsLastScene = '';
 
     /**
      * 单笔大额提醒的阈值（电池，0 = 关闭）。
@@ -342,7 +358,20 @@ export class App {
     // 没有手机推送出口，周报无处可去；手工改配置留下的半套状态要收掉
     if (!this.pushProvider || !this.pushTarget) this.weeklyReport = false;
 
-    // 大额提醒阈值：只接受 0..MAX 的整数。写坏了就当没配（0=关），    // 不能截断成半截数字 —— 那会变成"每笔都提醒"或"永远不提醒"，且没人看得出来
+    // OBS：地址必须是 ws:// 或 wss://；写坏就把整组关掉，不拿半套配置去连
+    if (typeof cfg.obsEnabled === 'boolean') this.obsEnabled = cfg.obsEnabled;
+    if (typeof cfg.obsUrl === 'string') this.obsUrl = cfg.obsUrl.trim();
+    if (typeof cfg.obsPassword === 'string') this.obsPassword = cfg.obsPassword;
+    if (typeof cfg.obsLiveScene === 'string') this.obsLiveScene = cfg.obsLiveScene.trim();
+    if (typeof cfg.obsOfflineScene === 'string') this.obsOfflineScene = cfg.obsOfflineScene.trim();
+    if (this.obsUrl && !/^wss?:\/\/\S+$/i.test(this.obsUrl)) {
+      this.log.warn('[配置] data/app.json 里的 OBS 地址无效（要 ws:// 或 wss://），已忽略');
+      this.obsEnabled = false;
+    }
+    if (!this.obsUrl) this.obsEnabled = false;
+
+    // 大额提醒阈值：只接受 0..MAX 的整数。写坏了就当没配（0=关），
+    // 不能截断成半截数字 —— 那会变成"每笔都提醒"或"永远不提醒"，且没人看得出来
     if (cfg.bigSpendBattery !== undefined) {
       if (
         Number.isInteger(cfg.bigSpendBattery) &&
@@ -646,6 +675,11 @@ export class App {
         pushProvider: this.pushProvider,
         pushTarget: this.pushTarget,
         weeklyReport: this.weeklyReport,
+        obsEnabled: this.obsEnabled,
+        obsUrl: this.obsUrl,
+        obsPassword: this.obsPassword,
+        obsLiveScene: this.obsLiveScene,
+        obsOfflineScene: this.obsOfflineScene,
         bigSpendBattery: this.bigSpendBattery,
         patronReturnBattery: this.patronReturnBattery,
         giftGoalBattery: this.giftGoalBattery,
@@ -1540,6 +1574,8 @@ export class App {
     this.log.info(`[提醒] ${text}`);
     // 手机推送与 webhook 相互独立：没配群机器人，手机一样能收到
     this._pushText(start ? '开播提醒' : '下播提醒', text);
+    // OBS 切场景同样不依赖 webhook：配了 OBS 就该跟着边沿切
+    this._switchObsScene(start);
 
     const webhook = this.notifyWebhook;
     if (!webhook) return;
@@ -1874,6 +1910,104 @@ export class App {
       target: this.pushTarget,
       weekly: this.weeklyReport,
     };
+  }
+
+  /**
+   * 设置 OBS 场景联动。密码只进不出：读取接口用 passwordSet 表示设过没有。
+   */
+  setObsSettings({ enabled, url, password, clearPassword, liveScene, offlineScene } = {}) {
+    const nextEnabled = enabled === undefined ? this.obsEnabled : Boolean(enabled);
+    const nextUrl = url === undefined ? this.obsUrl : String(url ?? '').trim();
+    const nextLive = liveScene === undefined ? this.obsLiveScene : String(liveScene ?? '').trim();
+    const nextOffline =
+      offlineScene === undefined ? this.obsOfflineScene : String(offlineScene ?? '').trim();
+    const nextPassword = clearPassword
+      ? ''
+      : password === undefined
+        ? this.obsPassword
+        : String(password ?? '');
+
+    if (nextEnabled && !nextUrl) {
+      throw Object.assign(new Error('OBS 地址不能为空（例如 ws://127.0.0.1:4455）'), {
+        status: 400,
+        code: 'bad_obs',
+      });
+    }
+    if (nextUrl && !/^wss?:\/\/\S+$/i.test(nextUrl)) {
+      throw Object.assign(new Error('OBS 地址要以 ws:// 或 wss:// 开头，且不能有空格'), {
+        status: 400,
+        code: 'bad_obs',
+      });
+    }
+
+    const before = {
+      enabled: this.obsEnabled,
+      url: this.obsUrl,
+      password: this.obsPassword,
+      live: this.obsLiveScene,
+      offline: this.obsOfflineScene,
+    };
+    Object.assign(this, {
+      obsEnabled: nextEnabled && Boolean(nextUrl),
+      obsUrl: nextUrl,
+      obsPassword: nextPassword,
+      obsLiveScene: nextLive,
+      obsOfflineScene: nextOffline,
+    });
+    this._obsLastScene = '';
+    if (!this._saveConfig()) {
+      Object.assign(this, {
+        obsEnabled: before.enabled,
+        obsUrl: before.url,
+        obsPassword: before.password,
+        obsLiveScene: before.live,
+        obsOfflineScene: before.offline,
+      });
+      throw Object.assign(new Error('保存 OBS 设置失败：写不进 data/app.json'), {
+        status: 500,
+        code: 'save_failed',
+      });
+    }
+    return this.obsView();
+  }
+
+  /** 给页面的 OBS 配置：永远不带密码原文。 */
+  obsView() {
+    return {
+      enabled: this.obsEnabled === true,
+      url: this.obsUrl ?? '',
+      liveScene: this.obsLiveScene ?? '',
+      offlineScene: this.obsOfflineScene ?? '',
+      passwordSet: Boolean(this.obsPassword),
+    };
+  }
+
+  /**
+   * 开播/下播边沿切 OBS 场景。失败只记日志：OBS 没开不该影响提醒和统计。
+   */
+  _switchObsScene(start) {
+    if (!this.obsEnabled || !this.obsUrl) return;
+    const scene = start ? this.obsLiveScene : this.obsOfflineScene;
+    if (!scene) return;
+    if (this._obsBusy || this._obsLastScene === scene) return;
+
+    this._obsBusy = true;
+    Promise.resolve(this.createObs({ url: this.obsUrl, password: this.obsPassword }))
+      .then(async (client) => {
+        try {
+          await client.request('SetCurrentProgramScene', { sceneName: scene });
+          this._obsLastScene = scene;
+          this.log.info(`[OBS] 已切到场景「${scene}」`);
+        } finally {
+          client?.close?.();
+        }
+      })
+      .catch((err) => {
+        this.log.warn(`[OBS] 切换场景失败：${err.message}`);
+      })
+      .finally(() => {
+        this._obsBusy = false;
+      });
   }
 
   /**
