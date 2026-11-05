@@ -503,14 +503,15 @@ test('欢迎：关注后紧跟进场，只发一条（共用冷却表）', async
   assert.equal(says[0].reason, 'follow')
 })
 
-test('欢迎：先进场后关注，也只发一条（反过来也必须挡住）', async (t) => {
+test('欢迎：先进场后关注，欢迎和感谢关注各说一句（两种意图）', async (t) => {
   const { host, says } = await welcomeHost(t, { cooldownSec: 90 })
 
   await host.dispatch({ type: 'ENTER', payload: { uid: 3003, uname: '路过' } })
   await host.dispatch({ type: 'FOLLOW', payload: { uid: 3003, uname: '路过' } })
 
-  assert.equal(says.length, 1)
+  assert.equal(says.length, 2, '欢迎过不代表这次关注可以不说')
   assert.equal(says[0].reason, 'welcome')
+  assert.equal(says[1].reason, 'follow')
 })
 
 test('欢迎：本场欢迎过，之后关注仍然单独谢（本场一次只挡重复进场）', async (t) => {

@@ -25,5 +25,6 @@ export function handleGuard(ctx, ev, greeter) {
     template,
     reason: renew ? 'guard_renew' : 'guard',
     sessionGate: false,
+    cooldownGate: false,
   })
 }

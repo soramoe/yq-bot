@@ -83,10 +83,10 @@ export class Greeter {
   /**
    * @param {object} ctx 插件上下文
    * @param {object} ev  事件
-   * @param {{template:string, reason:string, allowReturning?:boolean, sessionGate?:boolean}} opts
+   * @param {{template:string, reason:string, allowReturning?:boolean, sessionGate?:boolean, cooldownGate?:boolean}} opts
    * @returns {boolean} 是否认领了这条事件
    */
-  greet(ctx, ev, { template, reason, allowReturning = false, sessionGate = true }) {
+  greet(ctx, ev, { template, reason, allowReturning = false, sessionGate = true, cooldownGate = true }) {
     const cfg = ctx.config
     const p = ev.payload ?? {}
     const uid = String(p.uid ?? '')
@@ -108,8 +108,11 @@ export class Greeter {
      */
     const now = Number.isFinite(ev.ts) && ev.ts > 0 ? ev.ts : Date.now()
 
-    // ① 短期冷却
-    if (this._onCooldown(ctx, uid, cfg.cooldownSec, now)) return true
+    // ① 短期冷却。
+    //    关注 / 分享 / 上舰是一次性事件，各有各的话要说，不该因为
+    //    27 秒前刚欢迎过这个人就把谢意吞掉；这几条传 cooldownGate:false。
+    //    它们仍然会 _mark，所以「关注后 B站 再推一条进场」照样被挡住。
+    if (cooldownGate && this._onCooldown(ctx, uid, cfg.cooldownSec, now)) return true
 
     // ② 本场已经说过了。
     //    只挡「重复进场」：同一场里进出二十次不该被欢迎二十遍。
@@ -216,6 +219,7 @@ export function handleFollow(ctx, ev, greeter) {
     template: cfg.followTemplate,
     reason: 'follow',
     sessionGate: false,
+    cooldownGate: false,
   })
 }
 
@@ -235,6 +239,7 @@ export function handleShare(ctx, ev, greeter) {
     template: cfg.shareTemplate,
     reason: 'share',
     sessionGate: false,
+    cooldownGate: false,
   })
 }
 
