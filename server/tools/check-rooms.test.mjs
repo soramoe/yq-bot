@@ -2878,7 +2878,7 @@ test('PK 开场：检测到新一场就分段播对面情报，同一场只播�
         : { online: 50, liveState: 'live', title: '我方' },
     fetchRank: async ({ roomId }) =>
       String(roomId) === '200'
-        ? { items: [{ score: 600 }, { score: 400 }, { score: 10 }] }
+        ? { items: [{ score: 600 }, { score: 400 }, { score: 10 }], onlineNum: 1234 }
         : { items: [] },
   })
   await app.start()
@@ -2888,7 +2888,7 @@ test('PK 开场：检测到新一场就分段播对面情报，同一场只播�
   const texts = () => runner.gate.said.map((x) => x.text)
   assert.deepEqual(texts(), [
     '对面是：对面主播',
-    '对面直播间 1234 人',
+    '对面高能榜 1234 人',
     '对面日榜前十贡献 1010',
     '对方看起来很强，谨慎对待',
   ])

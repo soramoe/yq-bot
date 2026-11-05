@@ -2621,6 +2621,8 @@ export class App {
       return {
         items,
         total: items.reduce((sum, it) => sum + (Number(it.score) || 0), 0),
+        // 高能榜上的在线人数：这是"榜上有多少人"，不是直播间人气
+        onlineNum: Number(rank?.onlineNum) || 0,
       };
     } catch {
       return null;
@@ -2644,21 +2646,18 @@ export class App {
     const mate = battle.members.find((m) => m.roomId !== String(ownId));
     if (!mate) return; // 对面还没进 PK 房，等下一轮
 
-    const info = await this._fetchRoomByInput(mate.roomId, cookie).catch((err) => {
-      this.log.warn(`[PK] 拉对面信息失败：${err.message}`);
-      return null;
-    });
     const rank = await this._fetchRankSafe(mate.roomId, cookie);
     // 拿齐了再认领这一场：中途失败还能在下一轮补，别因为一次网络抖动整场静默
     this._pkBattleId = battle.pkId;
     const top10 = (rank?.items ?? []).slice(0, 10);
     const contribution = top10.reduce((sum, it) => sum + (Number(it.score) || 0), 0);
-    const online = Number(info?.online) || 0;
+    // 「在线人数」按用户口径取高能榜的 onlineNum，不取房间人气
+    const online = rank?.onlineNum ?? 0;
 
     const strong = this.pkBriefThreshold > 0 && contribution >= this.pkBriefThreshold;
     const texts = [
       `对面是：${mate.name}`,
-      online > 0 ? `对面直播间 ${online} 人` : '对面直播间人数暂时看不到',
+      online > 0 ? `对面高能榜 ${online} 人` : '对面高能榜人数暂时看不到',
       `对面日榜前十贡献 ${contribution}`,
       strong ? this.pkBriefStrong : this.pkBriefWeak,
     ];
