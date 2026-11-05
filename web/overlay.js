@@ -69,6 +69,42 @@ export function clearsGifts(ev) {
   return ev?.type === 'LIVE_START' && ev?.payload?.synthetic !== true;
 }
 
+/**
+ * OBS 浏览器源地址上的外观参数。
+ *
+ * 地址形如 /overlay.html?theme=light&scene=compact&hide=gifts,paid
+ * 都不填就是默认主题 + 完整场景。非法值直接回落，不报错——
+ * 主播手改地址时不该因为拼错一个词就得到一块白屏。
+ */
+export function parseOverlayOptions(search = '') {
+  const q = new URLSearchParams(String(search || '').replace(/^\?/, ''));
+  const themes = ['default', 'light', 'warm', 'mono'];
+  const scenes = ['full', 'compact', 'minimal'];
+  const hideable = ['paid', 'gifts', 'goal', 'stats'];
+
+  const rawTheme = String(q.get('theme') || '').toLowerCase();
+  const rawScene = String(q.get('scene') || '').toLowerCase();
+  const hide = String(q.get('hide') || '')
+    .split(',')
+    .map((x) => x.trim().toLowerCase())
+    .filter((x) => hideable.includes(x));
+
+  return {
+    theme: themes.includes(rawTheme) ? rawTheme : 'default',
+    scene: scenes.includes(rawScene) ? rawScene : 'full',
+    hide: [...new Set(hide)],
+  };
+}
+
+/** 把外观参数落到页面上；scene 走 CSS，hide 用 class，避免直接改 style */
+export function applyOverlayOptions(opts, root = null, doc = null) {
+  if (!root || !doc) return;
+  const { theme, scene, hide } = opts;
+  doc.documentElement?.setAttribute('data-theme', theme);
+  root.setAttribute('data-scene', scene);
+  for (const key of hide) root.classList.add(`ov-hide-${key}`);
+}
+
 /* ────────────────────────── 状态 ────────────────────────── */
 
 let lastSeq = 0;
@@ -377,6 +413,12 @@ function reconnect() {
 /* ────────────────────────── 启动 ────────────────────────── */
 
 if (els) {
+  // 主题/场景/隐藏项都从 OBS 地址来，不写死
+  applyOverlayOptions(
+    parseOverlayOptions(location.search),
+    document.getElementById('ov-root'),
+    document,
+  );
   renderClock();
   renderGifts();
   connect();
