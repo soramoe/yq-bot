@@ -3,7 +3,7 @@ rem Start the service in the background (hidden window).
 rem Usage: start.bat        manual start (clears the pause flag)
 rem        start.bat auto   watchdog start (respects the pause flag)
 chcp 65001 >nul
-setlocal EnableExtensions
+setlocal EnableExtensions EnableDelayedExpansion
 set "ROOT=%~dp0.."
 for %%I in ("%ROOT%") do set "ROOT=%%~fI"
 pushd "%ROOT%" || exit /b 1
@@ -23,8 +23,8 @@ if exist "%ROOT%\scripts\proxy.txt" (
     if not defined PROXY_URL set "PROXY_URL=%%P"
   )
   if defined PROXY_URL (
-    set "HTTP_PROXY=%PROXY_URL%"
-    set "HTTPS_PROXY=%PROXY_URL%"
+    set "HTTP_PROXY=!PROXY_URL!"
+    set "HTTPS_PROXY=!PROXY_URL!"
     set "NO_PROXY=127.0.0.1,localhost,::1"
     set "NODE_USE_ENV_PROXY=1"
     echo [INFO] using proxy from scripts\proxy.txt

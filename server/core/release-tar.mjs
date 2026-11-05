@@ -40,6 +40,21 @@ export function cleanEntryName(name) {
   return parts.join('/');
 }
 
+/**
+ * 是否是 tar 的根目录条目（`./`、`.` 或空）。
+ * GitHub 的 `tar -czf ... .` 会带一条 `./`，它不是文件也不是越界路径，
+ * 解压时直接跳过，不能当成"不安全路径"拒绝整包。
+ * @param {string} name
+ */
+export function isRootEntry(name) {
+  const raw = String(name ?? '')
+    .replace(/\\/g, '/')
+    .replace(/\0/g, '')
+    .trim();
+  if (!raw) return true;
+  return raw.split('/').every((p) => !p || p === '.');
+}
+
 function readString(buf, start, len) {
   let i = start;
   const end = start + len;
@@ -140,7 +155,11 @@ export function extractTarGz(gzBuffer, destDir) {
 
   for (const entry of entries) {
     const rel = cleanEntryName(entry.path);
-    if (!rel) throw new Error(`更新包里有不安全路径：${entry.path}`);
+    if (!rel) {
+      // 只放过根目录占位（`./`）；绝对路径、`..` 仍然拒绝。
+      if (isRootEntry(entry.path)) continue;
+      throw new Error(`更新包里有不安全路径：${entry.path}`);
+    }
 
     const target = resolve(root, rel);
     // 双保险：即使上面的规范化被绕过，也不允许写出 destDir

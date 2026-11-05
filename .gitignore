@@ -4,8 +4,9 @@ data/
 # 依赖
 node_modules/
 
-# 日志
+# 日志（根目录 logs/ 是项目内启停脚本写的，不属于代码）
 *.log
+logs/
 
 # 本机代理地址，换台机器就不同
 scripts/proxy.txt

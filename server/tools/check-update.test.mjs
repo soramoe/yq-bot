@@ -86,6 +86,21 @@ test('更新包：tar.gz 解压后内容一致，目录和空文件都保留', (
   assert.equal(readFileSync(join(dest, 'README.md'), 'utf8'), '# hi');
 });
 
+test('更新包：tar 的 ./ 根目录条目跳过，不把整包当成越界', (t) => {
+  const dest = makeRoot(t);
+  const gz = gzipSync(
+    makeTar([
+      { name: './', type: '5' },
+      { name: './server/', type: '5' },
+      { name: './server/app.mjs', data: 'new app' },
+    ]),
+  );
+
+  const { count } = extractTarGz(gz, dest);
+  assert.equal(count, 1);
+  assert.equal(readFileSync(join(dest, 'server', 'app.mjs'), 'utf8'), 'new app');
+});
+
 test('更新包：路径穿越和符号链接在落盘前就被拦下', (t) => {
   const dest = makeRoot(t);
   assert.throws(

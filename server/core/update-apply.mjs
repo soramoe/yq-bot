@@ -26,6 +26,7 @@ export const REPLACE_ITEMS = Object.freeze([
   'server',
   'web',
   'plugins',
+  'scripts',
   'docs',
   'package.json',
   'package-lock.json',

@@ -81,8 +81,18 @@ function log(message) {
   }
 }
 
-function fail(message, code = 1) {
+function fail(message, code = 1, restartOld = false) {
   log(`失败：${message}`);
+  if (restartOld) {
+    // 更新进程是被服务自己拉起来的；旧进程已经退出的话，
+    // 这里不把旧版本拉回来，机器就会一直停在"端口没人听"的状态。
+    try {
+      startServer();
+      log('已重新启动旧版本');
+    } catch (err) {
+      log(`旧版本起不来：${err?.message ?? err}，请手动执行 scripts\\start.bat`);
+    }
+  }
   process.exit(code);
 }
 
@@ -114,7 +124,7 @@ function stamp() {
 function startServer() {
   const out = openSync(join(root, 'data', 'service.out.log'), 'a');
   const err = openSync(join(root, 'data', 'service.err.log'), 'a');
-  const child = spawn(process.execPath, [join(root, 'server', 'main.mjs')], {
+  const child = spawn(process.execPath, [join(root, 'server', 'main.mjs'), '--port', String(opt.port || 8900)], {
     cwd: root,
     detached: true,
     windowsHide: true,
@@ -159,11 +169,11 @@ async function main() {
   try {
     buffer = readFileSync(opt.archive);
   } catch (err) {
-    return fail(`读不到更新包：${err?.message ?? err}`);
+    return fail(`读不到更新包：${err?.message ?? err}`, 1, true);
   }
-  if (buffer.length > MAX_PACKAGE_BYTES) return fail('更新包超过 100MB，拒绝安装');
+  if (buffer.length > MAX_PACKAGE_BYTES) return fail('更新包超过 100MB，拒绝安装', 1, true);
   const problem = packageProblem(buffer, { sha256: opt.sha256 });
-  if (problem) return fail(problem);
+  if (problem) return fail(problem, 1, true);
 
   const workRoot = join(root, 'data', 'updates');
   const staging = join(workRoot, `staging-${stamp()}`);
@@ -173,11 +183,11 @@ async function main() {
     const { count } = extractTarGz(buffer, staging);
     log(`解压完成：${count} 个文件`);
   } catch (err) {
-    return fail(`解压失败：${err?.message ?? err}`);
+    return fail(`解压失败：${err?.message ?? err}`, 1, true);
   }
 
   const items = plannedItems(staging);
-  if (!items.length) return fail('更新包里没有可替换的文件（server/web/plugins 都不在）');
+  if (!items.length) return fail('更新包里没有可替换的文件（server/web/plugins 都不在）', 1, true);
   log(`将替换：${items.join(', ')}`);
 
   const backupDir = join(root, 'data', 'backups', stamp());
@@ -186,7 +196,7 @@ async function main() {
     touched = backupAndReplace({ root, staging, items, backupDir });
     log(`已备份到 ${backupDir}`);
   } catch (err) {
-    return fail(err?.message ?? String(err));
+    return fail(err?.message ?? String(err), 1, true);
   }
 
   log('启动新版本…');
