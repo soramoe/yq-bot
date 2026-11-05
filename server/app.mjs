@@ -2572,8 +2572,8 @@ export class App {
       });
 
       const [ownRank, oppRank] = await Promise.all([
-        ownId ? this._fetchRankSafe(ownId, cookie) : null,
-        opp?.roomId ? this._fetchRankSafe(opp.roomId, cookie) : null,
+        ownId ? this._fetchRankSafe(ownId, cookie, ownInfo?.uid) : null,
+        opp?.roomId ? this._fetchRankSafe(opp.roomId, cookie, opp.info?.uid) : null,
       ]);
 
       const self = pkRoomView(ownInfo, { rank: ownRank });
@@ -2610,10 +2610,11 @@ export class App {
     }
   }
 
-  async _fetchRankSafe(roomId, cookie) {
+  async _fetchRankSafe(roomId, cookie, ruid = 0) {
     try {
       const rank = await this.fetchRank({
         roomId,
+        ruid,
         cookie,
         fetchImpl: this.fetchImpl ?? globalThis.fetch,
       });
@@ -2646,7 +2647,7 @@ export class App {
     const mate = battle.members.find((m) => m.roomId !== String(ownId));
     if (!mate) return; // 对面还没进 PK 房，等下一轮
 
-    const rank = await this._fetchRankSafe(mate.roomId, cookie);
+    const rank = await this._fetchRankSafe(mate.roomId, cookie, mate.uid);
     // 拿齐了再认领这一场：中途失败还能在下一轮补，别因为一次网络抖动整场静默
     this._pkBattleId = battle.pkId;
     const top10 = (rank?.items ?? []).slice(0, 10);
