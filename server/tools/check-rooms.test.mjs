@@ -2887,9 +2887,9 @@ test('PK 开场：检测到新一场就分段播对面情报，同一场只播�
   const runner = app.rooms.get('100').runner
   const texts = () => runner.gate.said.map((x) => x.text)
   assert.deepEqual(texts(), [
-    '对面是：对面主播',
-    '对面高能榜 1234 人',
-    '对面日榜前十贡献 1010',
+    '迎战主播：对面主播',
+    '在线人数：1234',
+    '前十贡献：1010',
     '对方看起来很强，谨慎对待',
   ])
   assert.ok(runner.gate.said.every((x) => x.reason === 'pk_brief'))
@@ -2911,4 +2911,29 @@ test('PK 开场：检测到新一场就分段播对面情报，同一场只播�
   await app.pollPk()
   assert.equal(texts().length, 8)
   assert.equal(texts().at(-1), '对方看起来一般，但也要全力以赴')
+
+  // 文案可以自己改，占位符会替换成实时数据
+  app.setPkBrief({
+    name: '对面：{名字}',
+    online: '榜上 {人数} 人',
+    rank: '贡献 {贡献}',
+    weak: '对面不强，冲',
+  })
+  battle = {
+    active: true,
+    pkId: 'pk-3',
+    members: [{ uid: '1', roomId: '200', name: '对面主播' }],
+  }
+  await app.pollPk()
+  assert.deepEqual(texts().slice(-4), [
+    '对面：对面主播',
+    '榜上 1234 人',
+    '贡献 1010',
+    '对面不强，冲',
+  ])
+  // 占位符是硬要求：删了就不知道数字该放哪
+  assert.throws(
+    () => app.setPkBrief({ name: '对面主播' }),
+    (err) => err.code === 'bad_pk_brief' && err.message.includes('{名字}'),
+  )
 })

@@ -2445,6 +2445,12 @@ dialog#dlg-reports {
   flex: 1;
   min-width: 160px;
 }
+.pk-hint {
+  margin: 0;
+  color: var(--text-3);
+  font-size: var(--fs-xs);
+  line-height: 1.5;
+}
 
 @media (max-width: 680px) {
   .pk-grid {

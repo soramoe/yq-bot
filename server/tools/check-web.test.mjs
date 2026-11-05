@@ -2628,7 +2628,13 @@ test('PK 情报：按钮、弹窗与接线都在，换房要重拉', () => {
   assert.match(css, /\.pk-rank/)
   assert.match(css, /\.pk-brief/)
   assert.match(view, /briefBox\.checked/)
+  assert.match(view, /nameInput\.value/)
+  assert.match(view, /onlineInput\.value/)
+  assert.match(view, /rankInput\.value/)
   assert.match(view, /strongInput\.value/)
+  assert.match(view, /\{名字\}/)
+  assert.match(view, /\{人数\}/)
+  assert.match(view, /\{贡献\}/)
   assert.match(apiSrc, /savePk:\s*\(settings\)/)
 })
 

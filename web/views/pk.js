@@ -133,6 +133,18 @@ export function createPk({ dlg, toast = () => {} }) {
     class: 'pk-num',
     attrs: { type: 'number', min: '0', step: '100', inputmode: 'numeric' },
   });
+  const nameInput = el('input', {
+    class: 'pk-text',
+    attrs: { type: 'text', maxlength: '80', placeholder: '迎战主播：{名字}' },
+  });
+  const onlineInput = el('input', {
+    class: 'pk-text',
+    attrs: { type: 'text', maxlength: '80', placeholder: '在线人数：{人数}' },
+  });
+  const rankInput = el('input', {
+    class: 'pk-text',
+    attrs: { type: 'text', maxlength: '80', placeholder: '前十贡献：{贡献}' },
+  });
   const strongInput = el('input', {
     class: 'pk-text',
     attrs: { type: 'text', maxlength: '80', placeholder: '对方很强时说什么' },
@@ -149,6 +161,19 @@ export function createPk({ dlg, toast = () => {} }) {
       el('label', { class: 'pk-brief-line' }, {
         children: [el('span', { text: '榜十贡献满' }), threshold, el('span', { text: '算强（0 = 永远算一般）' })],
       }),
+      el('label', { class: 'pk-brief-line' }, {
+        children: [el('span', { text: '播报文案（保留占位符）：' })],
+      }),
+      el('label', { class: 'pk-brief-line' }, {
+        children: [el('span', { text: '主播：' }), nameInput],
+      }),
+      el('label', { class: 'pk-brief-line' }, {
+        children: [el('span', { text: '人数：' }), onlineInput],
+      }),
+      el('label', { class: 'pk-brief-line' }, {
+        children: [el('span', { text: '贡献：' }), rankInput],
+      }),
+      el('p', { class: 'pk-hint', text: '整段都能改；{名字}、{人数}、{贡献} 会替换成实时数据，别删。' }),
       el('label', { class: 'pk-brief-line' }, {
         children: [el('span', { text: '强：' }), strongInput],
       }),
@@ -183,6 +208,9 @@ export function createPk({ dlg, toast = () => {} }) {
     const brief = view?.brief ?? {};
     briefBox.checked = brief.enabled === true;
     threshold.value = String(brief.threshold ?? 1000);
+    nameInput.value = brief.name || '迎战主播：{名字}';
+    onlineInput.value = brief.online || '在线人数：{人数}';
+    rankInput.value = brief.rank || '前十贡献：{贡献}';
     strongInput.value = brief.strong || '';
     weakInput.value = brief.weak || '';
     foot.textContent = view?.stale
@@ -249,6 +277,21 @@ export function createPk({ dlg, toast = () => {} }) {
       toast('强敌阈值要写成 0 或正整数', 'error');
       return;
     }
+    for (const [label, box, placeholder] of [
+      ['主播', nameInput, '{名字}'],
+      ['人数', onlineInput, '{人数}'],
+      ['贡献', rankInput, '{贡献}'],
+    ]) {
+      const text = box.value.trim();
+      if (!text) {
+        toast(`${label}播报文案不能为空`, 'error');
+        return;
+      }
+      if (!text.includes(placeholder)) {
+        toast(`${label}播报文案里要保留 ${placeholder}`, 'error');
+        return;
+      }
+    }
     if (!strongInput.value.trim() || !weakInput.value.trim()) {
       toast('强弱两段文案都要填', 'error');
       return;
@@ -259,6 +302,9 @@ export function createPk({ dlg, toast = () => {} }) {
         roomId: raw,
         enabled: briefBox.checked,
         threshold: wantThreshold,
+        name: nameInput.value.trim(),
+        online: onlineInput.value.trim(),
+        rank: rankInput.value.trim(),
         strong: strongInput.value.trim(),
         weak: weakInput.value.trim(),
       });

@@ -206,6 +206,9 @@ export class App {
      */
     this.pkBrief = true;
     this.pkBriefThreshold = 1000;
+    this.pkBriefName = '迎战主播：{名字}';
+    this.pkBriefOnline = '在线人数：{人数}';
+    this.pkBriefRank = '前十贡献：{贡献}';
     this.pkBriefStrong = '对方看起来很强，谨慎对待';
     this.pkBriefWeak = '对方看起来一般，但也要全力以赴';
     this._pkBattleId = '';
@@ -500,6 +503,20 @@ export class App {
     } else if (cfg.pkBriefThreshold !== undefined) {
       this.log.warn('[配置] data/app.json 里的 pkBriefThreshold 无效（0..1000000000 的整数），已忽略');
     }
+    // 三条播报模板都必须带占位符，否则改完就看不到名字/人数/贡献了
+    for (const [key, cfgKey, placeholder, fallback] of [
+      ['name', 'pkBriefName', '{名字}', '迎战主播：{名字}'],
+      ['online', 'pkBriefOnline', '{人数}', '在线人数：{人数}'],
+      ['rank', 'pkBriefRank', '{贡献}', '前十贡献：{贡献}'],
+    ]) {
+      const raw = cfg[cfgKey];
+      if (typeof raw === 'string' && raw.trim() && raw.includes(placeholder)) {
+        this[`pkBrief${key[0].toUpperCase()}${key.slice(1)}`] = raw.trim().slice(0, 80);
+      } else if (raw !== undefined) {
+        this.log.warn(`[配置] data/app.json 里的 ${cfgKey} 无效（必须包含 ${placeholder}），已忽略`);
+        this[`pkBrief${key[0].toUpperCase()}${key.slice(1)}`] = fallback;
+      }
+    }
     if (typeof cfg.pkBriefStrong === 'string' && cfg.pkBriefStrong.trim()) {
       this.pkBriefStrong = cfg.pkBriefStrong.trim().slice(0, 80);
     }
@@ -776,6 +793,9 @@ export class App {
         pkRoomId: this.pkRoomId,
         pkBrief: this.pkBrief,
         pkBriefThreshold: this.pkBriefThreshold,
+        pkBriefName: this.pkBriefName,
+        pkBriefOnline: this.pkBriefOnline,
+        pkBriefRank: this.pkBriefRank,
         pkBriefStrong: this.pkBriefStrong,
         pkBriefWeak: this.pkBriefWeak,
         obsEnabled: this.obsEnabled,
@@ -2425,6 +2445,9 @@ export class App {
       brief: {
         enabled: this.pkBrief === true,
         threshold: this.pkBriefThreshold,
+        name: this.pkBriefName,
+        online: this.pkBriefOnline,
+        rank: this.pkBriefRank,
         strong: this.pkBriefStrong,
         weak: this.pkBriefWeak,
       },
@@ -2437,10 +2460,13 @@ export class App {
    * 开关、阈值、两段文案一起写；任何一项不合法整组拒绝，
    * 避免页面显示保存成功、实际只有一半生效。
    */
-  setPkBrief({ enabled, threshold, strong, weak } = {}) {
+  setPkBrief({ enabled, threshold, name, online, rank, strong, weak } = {}) {
     const before = {
       enabled: this.pkBrief,
       threshold: this.pkBriefThreshold,
+      name: this.pkBriefName,
+      online: this.pkBriefOnline,
+      rank: this.pkBriefRank,
       strong: this.pkBriefStrong,
       weak: this.pkBriefWeak,
     };
@@ -2458,24 +2484,36 @@ export class App {
       }
       this.pkBriefThreshold = n;
     }
-    for (const [key, value] of [
-      ['strong', strong],
-      ['weak', weak],
+    for (const [key, value, placeholder] of [
+      ['name', name, '{名字}'],
+      ['online', online, '{人数}'],
+      ['rank', rank, '{贡献}'],
+      ['strong', strong, ''],
+      ['weak', weak, ''],
     ]) {
       if (value === undefined) continue;
       if (typeof value !== 'string') {
-        throw { status: 400, code: 'bad_pk_brief', message: 'PK 强弱文案必须是字符串' };
+        throw { status: 400, code: 'bad_pk_brief', message: 'PK 播报文案必须是字符串' };
       }
       const text = value.trim().slice(0, 80);
-      if (!text) throw { status: 400, code: 'bad_pk_brief', message: 'PK 强弱文案不能为空' };
-      if (key === 'strong') this.pkBriefStrong = text;
-      else this.pkBriefWeak = text;
+      if (!text) throw { status: 400, code: 'bad_pk_brief', message: 'PK 播报文案不能为空' };
+      if (placeholder && !text.includes(placeholder)) {
+        throw {
+          status: 400,
+          code: 'bad_pk_brief',
+          message: `这条播报文案里要有 ${placeholder}`,
+        };
+      }
+      this[`pkBrief${key[0].toUpperCase()}${key.slice(1)}`] = text;
     }
     if (enabled !== undefined) this.pkBrief = enabled;
 
     if (!this._saveConfig()) {
       this.pkBrief = before.enabled;
       this.pkBriefThreshold = before.threshold;
+      this.pkBriefName = before.name;
+      this.pkBriefOnline = before.online;
+      this.pkBriefRank = before.rank;
       this.pkBriefStrong = before.strong;
       this.pkBriefWeak = before.weak;
       throw {
@@ -2648,18 +2686,20 @@ export class App {
     if (!mate) return; // 对面还没进 PK 房，等下一轮
 
     const rank = await this._fetchRankSafe(mate.roomId, cookie, mate.uid);
+    if (!rank) return; // 榜单没拿到：下一轮再试，别播一份缺数字的情报
     // 拿齐了再认领这一场：中途失败还能在下一轮补，别因为一次网络抖动整场静默
     this._pkBattleId = battle.pkId;
-    const top10 = (rank?.items ?? []).slice(0, 10);
+    const top10 = (rank.items ?? []).slice(0, 10);
     const contribution = top10.reduce((sum, it) => sum + (Number(it.score) || 0), 0);
     // 「在线人数」按用户口径取高能榜的 onlineNum，不取房间人气
-    const online = rank?.onlineNum ?? 0;
+    const online = rank.onlineNum ?? 0;
 
     const strong = this.pkBriefThreshold > 0 && contribution >= this.pkBriefThreshold;
+    const fill = (tpl, placeholder, value) => tpl.replaceAll(placeholder, String(value));
     const texts = [
-      `对面是：${mate.name}`,
-      online > 0 ? `对面高能榜 ${online} 人` : '对面高能榜人数暂时看不到',
-      `对面日榜前十贡献 ${contribution}`,
+      fill(this.pkBriefName, '{名字}', mate.name),
+      fill(this.pkBriefOnline, '{人数}', online > 0 ? online : '暂时看不到'),
+      fill(this.pkBriefRank, '{贡献}', contribution),
       strong ? this.pkBriefStrong : this.pkBriefWeak,
     ];
 

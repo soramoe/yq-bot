@@ -748,10 +748,13 @@ export function buildRoutes(app) {
     }
     try {
       if ('roomId' in body) app.setPkRoom(body.roomId);
-      if (['enabled', 'threshold', 'strong', 'weak'].some((k) => k in body)) {
+      if (['enabled', 'threshold', 'name', 'online', 'rank', 'strong', 'weak'].some((k) => k in body)) {
         app.setPkBrief({
           enabled: body.enabled,
           threshold: body.threshold,
+          name: body.name,
+          online: body.online,
+          rank: body.rank,
           strong: body.strong,
           weak: body.weak,
         });
