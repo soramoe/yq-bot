@@ -828,7 +828,6 @@ export class App {
           uid: String(it.uid ?? ''),
           name: String(it.name ?? ''),
           song: String(it.song),
-          yuan: Number(it.yuan) || 0,
           status: it.status,
         }));
       this._songsLoaded = true;

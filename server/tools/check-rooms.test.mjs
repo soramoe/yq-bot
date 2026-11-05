@@ -2099,6 +2099,23 @@ test('点歌：songs.json 坏掉时留档，不当成空队列覆盖', async (t)
   assert.match(warns.join('\n'), /songs\.json/)
 })
 
+test('点歌：旧 songs.json 里的金额字段读进来就丢掉', async (t) => {
+  const { app, dataDir } = makeApp(t, { rooms: ['100'] })
+  writeFileSync(
+    join(dataDir, 'songs.json'),
+    JSON.stringify({
+      items: [
+        { id: 's1', seq: 1, ts: 1, uid: '7', name: '甲', song: '晴天', status: 'queued', yuan: 30 },
+      ],
+    }),
+  )
+  await app.start()
+
+  const view = app.songsView()
+  assert.equal(view.items.length, 1, '旧条目还能读')
+  assert.equal(view.items[0].yuan, undefined, '金额字段不再往外吐')
+})
+
 test('点歌接口：播放 / 完成 / 跳过与落盘', async (t) => {
   const { app, dataDir } = makeApp(t, { rooms: ['100'] })
   await app.start()
