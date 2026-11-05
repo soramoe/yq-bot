@@ -73,6 +73,7 @@ const dom = {
   pushSave: $('#push-save'),
   pushTest: $('#push-test'),
   pushHint: $('#push-hint'),
+  pushWeekly: $('#push-weekly'),
   dlgPlugins: $('#dlg-plugins'),
   plgTabs: $('#plg-tabs'),
   plgBody: $('#plg-body'),
@@ -141,6 +142,7 @@ const pushConfig = createPushConfig({
   saveButton: dom.pushSave,
   testButton: dom.pushTest,
   hint: dom.pushHint,
+  weekBox: dom.pushWeekly,
   api,
   toast,
 });

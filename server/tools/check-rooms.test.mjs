@@ -2002,11 +2002,99 @@ test('接口：/api/push 保存手机推送，坏配置当场 400，GET 读回�
 
   const res = fakeRes()
   await routes.match('GET', '/api/push').handler({ res, url: new URL('http://x/api/push'), app })
-  assert.deepEqual(JSON.parse(res.body), { ok: true, provider: 'bark', target: 'abc123' })
+  assert.deepEqual(JSON.parse(res.body), { ok: true, provider: 'bark', target: 'abc123', weekly: false })
 
   const cleared = await post({ provider: '', target: '' })
   assert.equal(cleared.statusCode, 200)
   assert.equal(app.pushProvider, '')
+})
+
+test('接口：/api/push 的周报开关成对校验，GET 读回 weekly', async (t) => {
+  const { app, dataDir } = makeApp(t, { rooms: ['100'] })
+  await app.start()
+
+  const routes = buildRoutes(app)
+  const { Readable } = await import('node:stream')
+  const post = async (body) => {
+    const res = fakeRes()
+    const req = Readable.from([Buffer.from(JSON.stringify(body))])
+    req.headers = { 'content-type': 'application/json' }
+    await routes.match('POST', '/api/push').handler({
+      req,
+      res,
+      url: new URL('http://x/api/push'),
+      app,
+    })
+    return res
+  }
+
+  const noPush = await post({ provider: '', target: '', weekly: true })
+  assert.equal(noPush.statusCode, 400)
+  assert.match(JSON.parse(noPush.body).error.message, /周报要推到手机/)
+
+  const badType = await post({ provider: 'bark', target: 'abc123', weekly: 'yes' })
+  assert.equal(badType.statusCode, 400)
+
+  const saved = await post({ provider: 'bark', target: 'abc123', weekly: true })
+  assert.equal(saved.statusCode, 200)
+  assert.equal(app.weeklyReport, true)
+  assert.equal(JSON.parse(readFileSync(join(dataDir, 'app.json'), 'utf8')).weeklyReport, true)
+
+  const res = fakeRes()
+  await routes.match('GET', '/api/push').handler({ res, url: new URL('http://x/api/push'), app })
+  assert.deepEqual(JSON.parse(res.body), {
+    ok: true,
+    provider: 'bark',
+    target: 'abc123',
+    weekly: true,
+  })
+
+  const cleared = await post({ provider: '', target: '', weekly: false })
+  assert.equal(cleared.statusCode, 200)
+  assert.equal(app.weeklyReport, false)
+})
+
+test('周报：按当前房间最近 7 天汇总后推手机，文案带场次与收入', async (t) => {
+  const calls = []
+  const now = Date.now()
+  const events = [
+    { seq: 1, ts: now - 7_200_000, type: 'LIVE_START', roomId: '100', payload: { liveTime: now - 7_200_000 } },
+    {
+      seq: 2,
+      ts: now - 7_000_000,
+      type: 'GIFT',
+      roomId: '100',
+      payload: { uname: '甲', giftName: '火箭', num: 1, price: 2380, battery: 2380, isPaid: true },
+    },
+    { seq: 3, ts: now - 1_000_000, type: 'LIVE_END', roomId: '100', payload: {} },
+  ]
+
+  const { app } = makeApp(t, {
+    rooms: ['100'],
+    fetchImpl: async (url, init) => {
+      calls.push({ url, init })
+      return { ok: true, status: 200, json: async () => ({ code: 200 }) }
+    },
+  })
+  await app.start()
+
+  app.rooms.get('100').runner.log_ = { readAllAsync: async () => events }
+  app.setPushSettings({ provider: 'bark', target: 'abc123', weekly: true })
+
+  const result = await app._sendWeeklyReport()
+  assert.equal(result.ok, true)
+  assert.equal(calls.length, 1)
+  const text = decodeURIComponent(new URL(calls[0].url).pathname.split('/').pop())
+  assert.match(text, /【周报】/)
+  assert.match(text, /礼物 ¥238/)
+  assert.match(text, /1 场/)
+  assert.match(text, /总收入 ¥238/)
+})
+
+test('配置：只写了 weeklyReport、没有手机推送时，启动后自动收掉', async (t) => {
+  const { app } = makeApp(t, { rooms: ['100'], cfg: { weeklyReport: true } })
+  await app.start()
+  assert.equal(app.weeklyReport, false)
 })
 
 test('手机推送：开播边沿推到手机，不依赖 webhook', async (t) => {

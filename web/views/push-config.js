@@ -29,7 +29,7 @@ function providerLabel(id) {
   return PROVIDERS.find((p) => p.id === id)?.label ?? id;
 }
 
-export function createPushConfig({ select, input, saveButton, testButton, hint, api, toast = () => {} }) {
+export function createPushConfig({ select, input, saveButton, testButton, hint, weekBox = null, api, toast = () => {} }) {
   let saving = false;
   let testing = false;
   let loadSeq = 0;
@@ -39,9 +39,10 @@ export function createPushConfig({ select, input, saveButton, testButton, hint, 
     hint.textContent = PROVIDERS.find((p) => p.id === select.value)?.hint ?? '';
   }
 
-  function applyServer(provider, target) {
+  function applyServer(provider, target, weekly = false) {
     select.value = PROVIDERS.some((p) => p.id === provider) ? provider : '';
     if (input) input.value = target ?? '';
+    if (weekBox) weekBox.checked = Boolean(weekly);
     updateHint();
   }
 
@@ -51,7 +52,7 @@ export function createPushConfig({ select, input, saveButton, testButton, hint, 
     try {
       const r = await api.push();
       if (seq !== loadSeq) return;
-      applyServer(r?.provider ?? '', r?.target ?? '');
+      applyServer(r?.provider ?? '', r?.target ?? '', r?.weekly === true);
     } catch (err) {
       if (seq === loadSeq) toast(`读不到手机推送设置：${err.message}`, 'warn');
     }
@@ -74,15 +75,21 @@ export function createPushConfig({ select, input, saveButton, testButton, hint, 
       toast('推送目标不能有空格', 'error');
       return;
     }
+    const weekly = weekBox ? Boolean(weekBox.checked) : undefined;
+    if (weekly && (!provider || !target)) {
+      toast('周报要推到手机，先把手机推送配好', 'warn');
+      return;
+    }
 
     saving = true;
     if (saveButton) saveButton.disabled = true;
     if (testButton) testButton.disabled = true;
     try {
-      const s = await api.savePush(provider, target);
+      const s = await api.savePush(provider, target, weekly);
       ++loadSeq;
-      applyServer(s?.provider ?? provider, s?.target ?? target);
-      toast(provider ? `已保存手机推送（${providerLabel(s?.provider ?? provider)}）` : '已关闭手机推送', 'info');
+      applyServer(s?.provider ?? provider, s?.target ?? target, s?.weekly === true);
+      const label = provider ? `已保存手机推送（${providerLabel(s?.provider ?? provider)}）` : '已关闭手机推送';
+      toast(s?.weekly ? `${label}，每周一 10:00 推周报` : label, 'info');
     } catch (err) {
       toast(`保存手机推送失败：${err.message}`, 'error');
     } finally {

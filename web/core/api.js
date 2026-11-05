@@ -181,7 +181,11 @@ export const api = {
     request('/api/goal', { method: 'POST', body: { goalBattery, announce, texts } }),
   /** 手机推送：target 是 key / topic / SendKey，属于凭据 */
   push: () => request('/api/push'),
-  savePush: (provider, target) => request('/api/push', { method: 'POST', body: { provider, target } }),
+  savePush: (provider, target, weekly) =>
+    request('/api/push', {
+      method: 'POST',
+      body: weekly === undefined ? { provider, target } : { provider, target, weekly },
+    }),
   testPush: () => request('/api/push/test', { method: 'POST', body: {} }),
   savePluginConfig: (id, patch) =>
     request(`/api/plugins/${encodeURIComponent(id)}/config`, { method: 'POST', body: patch }),

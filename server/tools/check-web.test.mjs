@@ -2139,21 +2139,29 @@ test('点歌队列：页面控件必须真的接到 app.js', () => {
   assert.match(apiSrc, /songAction/)
 })
 
-async function mountPush({ provider = '', target = '', fail = '', testResult = null } = {}) {
+async function mountPush({
+  provider = '',
+  target = '',
+  week = false,
+  withWeek = false,
+  fail = '',
+  testResult = null,
+} = {}) {
   const { createPushConfig } = await import('../../web/views/push-config.js')
   const select = new FakeNode('select')
   const input = new FakeNode('input')
   const saveButton = new FakeNode('button')
   const testButton = new FakeNode('button')
   const hint = new FakeNode('p')
+  const weekBox = withWeek ? new FakeNode('input') : null
   const saved = []
   const toasts = []
   const api = {
-    push: async () => ({ ok: true, provider, target }),
-    savePush: async (p, t) => {
+    push: async () => ({ ok: true, provider, target, weekly: week }),
+    savePush: async (p, t, w) => {
       if (fail) throw new Error(fail)
-      saved.push({ provider: p, target: t })
-      return { ok: true, provider: p, target: t }
+      saved.push(w === undefined ? { provider: p, target: t } : { provider: p, target: t, weekly: w })
+      return { ok: true, provider: p, target: t, weekly: w === undefined ? false : w }
     },
     testPush: async () => testResult ?? { ok: true, sent: true },
   }
@@ -2163,10 +2171,11 @@ async function mountPush({ provider = '', target = '', fail = '', testResult = n
     saveButton,
     testButton,
     hint,
+    weekBox,
     api,
     toast: (text, level) => toasts.push({ text, level }),
   })
-  return { cfg, select, input, saveButton, testButton, hint, saved, toasts }
+  return { cfg, select, input, saveButton, testButton, hint, weekBox, saved, toasts }
 }
 
 test('手机推送：打开时回填渠道与目标，并切到对应的说明', async () => {
@@ -2248,5 +2257,41 @@ test('手机推送：页面控件必须真的接到 app.js', () => {
   assert.match(app, /pushConfig\.load\(\)/)
   assert.match(apiSrc, /\/api\/push\/test/)
   assert.match(apiSrc, /savePush/)
+})
+
+test('手机推送：周报开关会随配置回填，保存时一起提交', async () => {
+  const { cfg, select, input, weekBox, saved, toasts } = await mountPush({
+    provider: 'bark',
+    target: 'abc123',
+    week: true,
+    withWeek: true,
+  })
+  await cfg.load()
+  assert.equal(weekBox.checked, true)
+
+  select.value = 'bark'
+  input.value = 'abc123'
+  weekBox.checked = true
+  await cfg.save()
+  assert.deepEqual(saved, [{ provider: 'bark', target: 'abc123', weekly: true }])
+  assert.match(toasts.at(-1).text, /每周一 10:00/)
+})
+
+test('手机推送：没配推送时勾周报，不发请求并当场提示', async () => {
+  const { cfg, select, input, weekBox, saved, toasts } = await mountPush({ withWeek: true })
+  select.value = ''
+  input.value = ''
+  weekBox.checked = true
+  await cfg.save()
+  assert.equal(saved.length, 0)
+  assert.match(toasts.at(-1).text, /周报要推到手机/)
+})
+
+test('手机推送：周报控件必须真的接到页面与 app.js', () => {
+  const html = readFileSync(join(process.cwd(), 'web/index.html'), 'utf8')
+  const app = readFileSync(join(process.cwd(), 'web/app.js'), 'utf8')
+  assert.ok(html.includes('id="push-weekly"'), 'index.html 里没有 #push-weekly')
+  assert.match(app, /pushWeekly:\s*\$\('#push-weekly'\)/)
+  assert.match(app, /weekBox:\s*dom\.pushWeekly/)
 })
 

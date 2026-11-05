@@ -44,6 +44,8 @@ import {
   paidBatteryOf,
   patronNameOf,
 } from './core/patrons.mjs';
+import { WEEKLY_WINDOW_DAYS, weeklyNextAt, weeklySummary, weeklyText } from './core/weekly.mjs';
+import { buildReports } from './core/report.mjs';
 import { verifyCookie } from './bili/login.mjs';
 
 const SILENT_LOG = { debug() {}, info() {}, warn() {}, error() {} };
@@ -153,6 +155,15 @@ export class App {
      */
     this.pushProvider = '';
     this.pushTarget = '';
+
+    /**
+     * 周报：每周一 10:00 把最近 7 天的战报推到手机。
+     *
+     * 必须有手机推送配置才有意义（没有出口就不发），所以开启时会成对校验。
+     * 只覆盖**当前活跃房间**的日志；多房间各开各的周报不在这一版里。
+     */
+    this.weeklyReport = false;
+    this._weeklyTimer = null;
 
     /**
      * 单笔大额提醒的阈值（电池，0 = 关闭）。
@@ -327,9 +338,11 @@ export class App {
         this.pushTarget = target;
       }
     }
+    if (typeof cfg.weeklyReport === 'boolean') this.weeklyReport = cfg.weeklyReport;
+    // 没有手机推送出口，周报无处可去；手工改配置留下的半套状态要收掉
+    if (!this.pushProvider || !this.pushTarget) this.weeklyReport = false;
 
-    // 大额提醒阈值：只接受 0..MAX 的整数。写坏了就当没配（0=关），
-    // 不能截断成半截数字 —— 那会变成"每笔都提醒"或"永远不提醒"，且没人看得出来
+    // 大额提醒阈值：只接受 0..MAX 的整数。写坏了就当没配（0=关），    // 不能截断成半截数字 —— 那会变成"每笔都提醒"或"永远不提醒"，且没人看得出来
     if (cfg.bigSpendBattery !== undefined) {
       if (
         Number.isInteger(cfg.bigSpendBattery) &&
@@ -431,6 +444,8 @@ export class App {
       for (const room of this.rooms.values()) room.runner?.roster?.prune();
     }, 6 * 3600_000);
     this._rosterTimer.unref?.();
+
+    this._armWeeklyReport();
 
     return this;
   }
@@ -567,6 +582,10 @@ export class App {
       clearInterval(this._rosterTimer);
       this._rosterTimer = null;
     }
+    if (this._weeklyTimer) {
+      clearTimeout(this._weeklyTimer);
+      this._weeklyTimer = null;
+    }
     // 所有房间都要停：只停当前那个的话，后台房间的长连会一直挂着，
     // 进程看起来"退出"了却又被 keep-alive 拖住
     const rooms = [...this.rooms.values()];
@@ -626,6 +645,7 @@ export class App {
         notifyReport: this.notifyReport,
         pushProvider: this.pushProvider,
         pushTarget: this.pushTarget,
+        weeklyReport: this.weeklyReport,
         bigSpendBattery: this.bigSpendBattery,
         patronReturnBattery: this.patronReturnBattery,
         giftGoalBattery: this.giftGoalBattery,
@@ -1791,44 +1811,69 @@ export class App {
    * @param {{provider?:string, target?:string}} [o]
    * @returns {{provider:string, target:string}}
    */
-  setPushSettings({ provider, target } = {}) {
+  setPushSettings({ provider, target, weekly } = {}) {
     const nextProvider = provider === undefined ? this.pushProvider : String(provider ?? '').trim();
     const nextTarget = target === undefined ? this.pushTarget : String(target ?? '').trim();
+    const nextWeekly = weekly === undefined ? this.weeklyReport : Boolean(weekly);
 
     if (!nextProvider && !nextTarget) {
-      const beforeProvider = this.pushProvider;
-      const beforeTarget = this.pushTarget;
+      if (nextWeekly) {
+        throw Object.assign(new Error('周报要推到手机，先把手机推送配好'), {
+          status: 400,
+          code: 'weekly_needs_push',
+        });
+      }
+      const before = { provider: this.pushProvider, target: this.pushTarget, weekly: this.weeklyReport };
       this.pushProvider = '';
       this.pushTarget = '';
+      this.weeklyReport = false;
       if (!this._saveConfig()) {
-        this.pushProvider = beforeProvider;
-        this.pushTarget = beforeTarget;
+        Object.assign(this, {
+          pushProvider: before.provider,
+          pushTarget: before.target,
+          weeklyReport: before.weekly,
+        });
         throw Object.assign(new Error('保存手机推送设置失败：写不进 data/app.json'), {
           status: 500,
           code: 'save_failed',
         });
       }
-      return { provider: '', target: '' };
+      this._armWeeklyReport();
+      return { provider: '', target: '', weekly: false };
     }
 
     const problem = pushTargetProblem(nextProvider, nextTarget);
     if (problem) {
       throw Object.assign(new Error(problem), { status: 400, code: 'bad_push' });
     }
+    if (nextWeekly && (!nextProvider || !nextTarget)) {
+      throw Object.assign(new Error('周报要推到手机，先把手机推送配好'), {
+        status: 400,
+        code: 'weekly_needs_push',
+      });
+    }
 
-    const beforeProvider = this.pushProvider;
-    const beforeTarget = this.pushTarget;
+    const before = { provider: this.pushProvider, target: this.pushTarget, weekly: this.weeklyReport };
     this.pushProvider = nextProvider;
     this.pushTarget = nextTarget;
+    this.weeklyReport = nextWeekly;
     if (!this._saveConfig()) {
-      this.pushProvider = beforeProvider;
-      this.pushTarget = beforeTarget;
+      Object.assign(this, {
+        pushProvider: before.provider,
+        pushTarget: before.target,
+        weeklyReport: before.weekly,
+      });
       throw Object.assign(new Error('保存手机推送设置失败：写不进 data/app.json'), {
         status: 500,
         code: 'save_failed',
       });
     }
-    return { provider: this.pushProvider, target: this.pushTarget };
+    this._armWeeklyReport();
+    return {
+      provider: this.pushProvider,
+      target: this.pushTarget,
+      weekly: this.weeklyReport,
+    };
   }
 
   /**
@@ -1853,6 +1898,75 @@ export class App {
         });
       })
       .catch(() => {});
+  }
+
+  /**
+   * 安排下一次周报。没有推送出口 / 开关关着时什么都不做。
+   *
+   * 定时器只排一次、发完再排：用 setInterval 的话，机器休眠醒来可能
+   * 一次性补发好几条；这里每次只认"下一次周一 10:00"。
+   */
+  _armWeeklyReport() {
+    if (this._weeklyTimer) {
+      clearTimeout(this._weeklyTimer);
+      this._weeklyTimer = null;
+    }
+    if (!this.weeklyReport || !this.pushProvider || !this.pushTarget) return;
+    const delay = Math.max(1000, weeklyNextAt(Date.now()) - Date.now());
+    this._weeklyTimer = setTimeout(() => {
+      this._weeklyTimer = null;
+      this._sendWeeklyReport()
+        .catch(() => {})
+        .finally(() => this._armWeeklyReport());
+    }, delay);
+    this._weeklyTimer.unref?.();
+  }
+
+  /**
+   * 汇总当前房间最近 7 天并推手机。失败只记日志，不抛。
+   *
+   * 这里现算而不是读缓存：周报每周才跑一次，没有性能压力；
+   * 而"每周的数字"必须能从日志重新得出，不能依赖某次运行的内存状态。
+   */
+  async _sendWeeklyReport() {
+    const room = this._activeRoom();
+    const logReader = room?.runner?.log_;
+    if (!room || !logReader) {
+      this.log.info('[周报] 当前房间还没启动，跳过');
+      return { ok: false, error: 'room not ready' };
+    }
+    if (!this.pushProvider || !this.pushTarget) {
+      return { ok: false, error: 'push off' };
+    }
+
+    try {
+      const roomId = String(room.runner?.realRoomId || room.key);
+      const all = await logReader.readAllAsync();
+      const since = Date.now() - WEEKLY_WINDOW_DAYS * 86400_000;
+      const reports = buildReports(all, { roomId }).filter(
+        (r) => (Number(r.startedAt) || 0) >= since,
+      );
+      const summary = weeklySummary(reports);
+      const text = weeklyText({
+        roomId,
+        title: room.runner?.info?.title ?? '',
+        summary,
+      });
+      const res = await sendPush(this.pushProvider, this.pushTarget, text, {
+        fetchImpl: this.fetchImpl,
+        title: '渔月崽三代 · 周报',
+      });
+      if (res.ok) {
+        this.log.info(`[周报] 已推送（${summary.sessions} 场）`);
+      } else {
+        const why = res.error || `HTTP ${res.status ?? '?'}`;
+        this.log.warn(`[周报] 手机推送没发出去（${why}）`);
+      }
+      return res;
+    } catch (err) {
+      this.log.warn(`[周报] 汇总失败：${err.message}`);
+      return { ok: false, error: err.message };
+    }
   }
 
   /**

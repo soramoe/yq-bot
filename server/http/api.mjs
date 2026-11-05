@@ -566,18 +566,27 @@ export function buildRoutes(app) {
       sendError(res, 401, 'locked_out', '需要访问口令（在侧栏「访问口令」里解锁）');
       return;
     }
-    sendJson(res, { ok: true, provider: app.pushProvider ?? '', target: app.pushTarget ?? '' });
+    sendJson(res, {
+      ok: true,
+      provider: app.pushProvider ?? '',
+      target: app.pushTarget ?? '',
+      weekly: app.weeklyReport === true,
+    });
   });
 
   r.post('/api/push', async ({ req, res }) => {
     const body = await readJson(req);
     if (typeof body?.provider !== 'string' || typeof body?.target !== 'string') {
-      sendError(res, 400, 'bad_request', '需要 { "provider": "bark|ntfy|serverchan", "target": "…" }；两个都空表示关闭');
+      sendError(res, 400, 'bad_request', '需要 { "provider": "bark|ntfy|serverchan", "target": "…", "weekly": false }；两个都空表示关闭');
+      return;
+    }
+    if (body.weekly !== undefined && typeof body.weekly !== 'boolean') {
+      sendError(res, 400, 'bad_request', 'weekly 只能是 true 或 false');
       return;
     }
     let saved;
     try {
-      saved = app.setPushSettings({ provider: body.provider, target: body.target });
+      saved = app.setPushSettings({ provider: body.provider, target: body.target, weekly: body.weekly });
     } catch (err) {
       if (err?.status) {
         sendError(res, err.status, err.code ?? 'bad_request', err.message);
