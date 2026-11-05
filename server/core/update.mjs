@@ -195,26 +195,49 @@ export class UpdateChecker {
 
     this._inflight = (async () => {
       const attempts = [];
-      // 有镜像就先走镜像：国内直连 GitHub 经常 8 秒都拿不到响应。
-      // 镜像挂了再回落到更新源，免得配错一个字就彻底检查不了。
-      if (mirror) attempts.push({ url: `${mirror}/latest.json`, via: 'mirror' });
-      if (url) attempts.push({ url, via: 'source' });
-
       let mirrorError = '';
       let last = null;
-      for (const attempt of attempts) {
-        const result = await this._doCheck(attempt.url);
-        if (!result.error) {
-          const out = { ...result, via: attempt.via, source: cacheKey, mirror };
-          this._cache = out;
-          return out;
+
+      // 先试镜像。镜像返回"没有新版本"时不能直接收工：镜像可能只是没同步，
+      // 而更新源已经发了新版。这种情况下再问一次源，谁更新信谁。
+      if (mirror) {
+        const mr = await this._doCheck(`${mirror}/latest.json`);
+        if (!mr.error) {
+          const mirrorOut = { ...mr, via: 'mirror', source: cacheKey, mirror };
+          if (mr.hasUpdate || !url) {
+            this._cache = mirrorOut;
+            return mirrorOut;
+          }
+          const sr = await this._doCheck(url);
+          if (!sr.error) {
+            const sourceOut = { ...sr, via: 'source', source: cacheKey, mirror };
+            // 源即使也没有更新，只要它的版本比镜像新，就用源的结论：
+            // 否则页面会显示一个早就过时的 latest 版本号。
+            const newerThanMirror =
+              compareVersion(String(sr.latest ?? ''), String(mr.latest ?? '')) > 0;
+            const out = sr.hasUpdate || newerThanMirror ? sourceOut : mirrorOut;
+            this._cache = out;
+            return out;
+          }
+          // 源连不上但镜像本身是好的：给镜像的结论，不要因为源挂了就整次失败
+          this._cache = mirrorOut;
+          return mirrorOut;
         }
-        if (attempt.via === 'mirror') mirrorError = result.error;
-        last = result;
+        mirrorError = mr.error;
+      }
+
+      if (url) {
+        const sr = await this._doCheck(url);
+        if (!sr.error) {
+          const sourceOut = { ...sr, via: 'source', source: cacheKey, mirror };
+          this._cache = sourceOut;
+          return sourceOut;
+        }
+        last = sr;
       }
 
       const error =
-        mirrorError && attempts.length > 1 && last?.error
+        mirrorError && last?.error
           ? `镜像：${mirrorError}；更新源：${last.error}`
           : mirrorError || last?.error || '检查更新失败';
       return { configured: true, current: this.current, checkedAt: Date.now(), error };

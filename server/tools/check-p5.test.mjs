@@ -554,6 +554,113 @@ test('更新：镜像下载把地址换到镜像，仍按清单的 sha256 / size
   assert.equal(d.sha256, sha);
 });
 
+test('更新：镜像落后但源有新版本时，检查回落源，下载也用源地址', async (t) => {
+  const dir = tmp(t);
+  const pkg = Buffer.from('source-package-bytes');
+  const sha = sha256Hex(pkg);
+  const calls = [];
+  const mirrorManifest = {
+    version: '0.2.4',
+    download: 'https://github.com/o/r/releases/download/v0.2.4/yuyue3-0.2.4.tar.gz',
+  };
+  const sourceManifest = {
+    version: '1.0.1',
+    download: 'https://source.example.com/yuyue3-1.0.1.tar.gz',
+    sha256: sha,
+    size: pkg.length,
+  };
+
+  const app = new App({
+    dataDir: dir,
+    roomId: '1',
+    fetchImpl: async (url) => {
+      const u = String(url);
+      calls.push(u);
+      if (u === 'https://mirror.example.com/yq/latest.json') {
+        return { ok: true, status: 200, json: async () => mirrorManifest };
+      }
+      if (u === 'https://example.com/latest.json') {
+        return { ok: true, status: 200, json: async () => sourceManifest };
+      }
+      if (u === sourceManifest.download) {
+        return {
+          ok: true,
+          status: 200,
+          url: u,
+          headers: { get: () => String(pkg.length) },
+          arrayBuffer: async () => pkg.buffer.slice(pkg.byteOffset, pkg.byteOffset + pkg.length),
+        };
+      }
+      throw new Error(`unexpected url ${u}`);
+    },
+  });
+
+  app.setUpdateUrl('https://example.com/latest.json');
+  app.setUpdateMirror('https://mirror.example.com/yq');
+
+  const chk = await app.checkUpdate({ force: true });
+  assert.equal(chk.via, 'source');
+  assert.equal(chk.latest, '1.0.1');
+  assert.equal(chk.hasUpdate, true);
+  assert.deepEqual(calls, [
+    'https://mirror.example.com/yq/latest.json',
+    'https://example.com/latest.json',
+  ]);
+
+  const d = await app.downloadUpdate();
+  assert.equal(calls.at(-1), sourceManifest.download, '下载必须用源地址，不能拼到镜像');
+  assert.equal(d.bytes, pkg.length);
+});
+
+test('更新：镜像和源都没有新版本时，结论仍算镜像的；源挂了也保留镜像结论', async () => {
+  const stale = {
+    version: '0.2.4',
+    download: 'https://mirror.example.com/yq/yuyue3-0.2.4.tar.gz',
+  };
+  let failSource = false;
+  const calls = [];
+  const c = new UpdateChecker({
+    current: '1.0.0',
+    getUrl: () => 'https://example.com/latest.json',
+    getMirror: () => 'https://mirror.example.com/yq',
+    fetchImpl: async (url) => {
+      calls.push(String(url));
+      if (String(url).startsWith('https://mirror.example.com')) {
+        return { ok: true, status: 200, json: async () => stale };
+      }
+      if (failSource) throw new Error('fetch failed');
+      return { ok: true, status: 200, json: async () => ({ version: '0.2.3' }) };
+    },
+  });
+
+  const r = await c.check();
+  assert.equal(calls.length, 2);
+  assert.equal(r.via, 'mirror');
+  assert.equal(r.hasUpdate, false);
+
+  failSource = true;
+  const r2 = await c.check({ force: true });
+  assert.equal(r2.via, 'mirror');
+  assert.equal(r2.hasUpdate, false);
+});
+
+test('更新：源没有新版本但版本号比镜像新时，也采用源的结论', async () => {
+  const c = new UpdateChecker({
+    current: '1.0.0',
+    getUrl: () => 'https://example.com/latest.json',
+    getMirror: () => 'https://mirror.example.com/yq',
+    fetchImpl: async (url) =>
+      String(url).startsWith('https://mirror.example.com')
+        ? { ok: true, status: 200, json: async () => ({ version: '0.2.3' }) }
+        : { ok: true, status: 200, json: async () => ({ version: '1.0.0' }) },
+  });
+
+  const r = await c.check();
+  assert.equal(r.via, 'source');
+  assert.equal(r.latest, '1.0.0', '页面不能显示镜像里过时的 0.2.3');
+  assert.equal(r.hasUpdate, false);
+});
+
 test('更新：同时点两次只发一次（并发合并，不是排队）', async () => {
   let called = 0;
   let release;

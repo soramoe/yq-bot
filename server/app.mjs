@@ -1826,7 +1826,10 @@ export class App {
     }
 
     mkdirSync(dir, { recursive: true });
-    const url = mirrorDownloadUrl(snap.download, this.updateMirror);
+    // 检查结果来自源时，镜像里可能根本没有这个新版本的包，不能改写成镜像地址
+    const url = snap.via === 'source'
+      ? snap.download
+      : mirrorDownloadUrl(snap.download, this.updateMirror);
     this.log.info(`[更新] 开始下载 v${version}…${url !== snap.download ? '（走镜像）' : ''}`);
     const buffer = await downloadPackage({
       url,
