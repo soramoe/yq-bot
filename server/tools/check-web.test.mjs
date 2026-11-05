@@ -2682,3 +2682,11 @@ test('服务健康：状态灯真的接在页面和 api 上', () => {
   assert.match(app, /\/api\/health|api\.health/, 'app.js 要调健康接口')
   assert.match(apiSrc, /health:\s*\(\)\s*=>\s*request\('\/api\/health'/, 'api.js 要有 health 方法')
 })
+test('月报 / 季报：战报面板里有入口，接口也接上了', () => {
+  const reports = readFileSync(join(process.cwd(), 'web/views/reports.js'), 'utf8')
+  const apiSrc = readFileSync(join(process.cwd(), 'web/core/api.js'), 'utf8')
+  assert.match(reports, /openPeriod/, 'reports.js 要能打开月报')
+  assert.match(reports, /api\.period/, '月报要调 /api/period')
+  assert.match(reports, /perBox/, '月报要有自己的容器')
+  assert.match(apiSrc, /period:\s*\(kind/, 'api.js 要有 period 方法')
+})

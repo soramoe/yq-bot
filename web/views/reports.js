@@ -90,6 +90,7 @@ export function createReports({ dlg, toast }) {
   const listBox = el('div', { class: 'rpt-list' });
   const timelineBox = el('div', { class: 'tl' });
   const hlBox = el('div', { class: 'hl' });
+  const perBox = el('div', { class: 'per' });
   let hlToken = 0;
 
   /* ── 沙盒区 ── */
@@ -749,9 +750,11 @@ export function createReports({ dlg, toast }) {
   function closeTimeline() {
     tlToken++;
     hlToken++;
+    perToken++;
     tlCursorX = null;
     replaceChildren(timelineBox, []);
     replaceChildren(hlBox, []);
+    replaceChildren(perBox, []);
     listBox.hidden = false;
   }
 
@@ -774,6 +777,131 @@ export function createReports({ dlg, toast }) {
       return false;
     }
   }
+
+  /**
+   * 月报 / 季报：把一段时间的场次加起来，并和上一段比。
+   *
+   * 全部由 `/api/period` 算好带过来，页面只排版；
+   * 不在这里做第二次求和，理由和战报页一样。
+   */
+  let perToken = 0;
+
+  function perCell(k, v, accent = false) {
+    return el('div', {
+      class: 'per-cell',
+      children: [
+        el('div', { class: 'per-k', text: k }),
+        el('div', { class: `per-v${accent ? ' accent' : ''}`, text: v }),
+      ],
+    });
+  }
+
+  function deltaText(d) {
+    if (!d) return '—';
+    if (d.pct === null) return d.value > 0 ? '上期没有记录' : '—';
+    return `${d.pct > 0 ? '+' : ''}${d.pct}%`;
+  }
+
+  async function openPeriod(kind = 'month') {
+    closeTimeline();
+    perToken += 1;
+    const token = perToken;
+    listBox.hidden = true;
+    replaceChildren(perBox, [el('div', { class: 'empty-hint', text: '正在汇总…' })]);
+
+    let data;
+    try {
+      data = await api.period(kind);
+    } catch (err) {
+      if (token !== perToken) return;
+      replaceChildren(perBox, [
+        el('div', { class: 'empty-hint', text: `月报打不开：${err.message}` }),
+        el('div', { class: 'per-actions', children: [backBtn()] }),
+      ]);
+      return;
+    }
+    if (token !== perToken) return;
+
+    const chips = [
+      { kind: 'month', label: '月报' },
+      { kind: 'quarter', label: '季报' },
+    ].map((c) =>
+      el('button', {
+        class: `per-chip${c.kind === data.kind ? ' is-on' : ''}`,
+        text: c.label,
+        attrs: { type: 'button' },
+        on: { click: () => openPeriod(c.kind) },
+      }),
+    );
+
+    const copyBtn = el('button', {
+      class: 'btn small',
+      text: '复制文本',
+      attrs: { type: 'button' },
+      on: {
+        click: async () => {
+          const ok = await copyText(data.text || '');
+          toast(ok ? '月报已复制' : '复制失败，浏览器没给剪贴板权限', ok ? 'info' : 'warn');
+        },
+      },
+    });
+
+    const cur = data.cur || {};
+    const rows = [
+      ['收入', data.delta?.totalBattery],
+      ['礼物', data.delta?.giftBattery],
+      ['舰长', data.delta?.guardBattery],
+      ['醒目留言', data.delta?.scBattery],
+      ['弹幕', data.delta?.danmaku],
+      ['涨粉', data.delta?.followCount],
+      ['场次', data.delta?.sessions],
+    ];
+
+    replaceChildren(perBox, [
+      el('div', {
+        class: 'per-head',
+        children: [
+          el('strong', { text: `${data.kind === 'quarter' ? '季报' : '月报'} · ${data.label}` }),
+          ...chips,
+          el('span', { class: 'spacer' }),
+          copyBtn,
+          backBtn(),
+        ],
+      }),
+      el('div', {
+        class: 'per-grid',
+        children: [
+          perCell('场次', `${n(cur.sessions || 0)} 场`),
+          perCell('时长', duration((cur.durationSec || 0) * 1000)),
+          perCell('总收入', money(cur.totalBattery || 0), true),
+          perCell('弹幕', n(cur.danmaku || 0)),
+          perCell('进场', n(cur.enterCount || 0)),
+          perCell('涨粉', n(cur.followCount || 0)),
+        ],
+      }),
+      el('div', {
+        class: 'per-delta',
+        children: rows.map(([k, d]) =>
+          el('div', {
+            class: 'per-delta-row',
+            children: [
+              el('span', { class: 'k', text: k }),
+              el('span', { class: 'v', text: deltaText(d) }),
+              el('span', { class: 'p', text: d ? `${d.value} ← ${d.prev}` : '' }),
+            ],
+          }),
+        ),
+      }),
+      el('pre', { class: 'per-text', text: data.text || '' }),
+    ]);
+  }
+
+  const periodBtn = el('button', {
+    class: 'btn small',
+    text: '月报 / 季报',
+    attrs: { type: 'button', title: '按自然月和自然季汇总，并和上一段对比' },
+    on: { click: () => openPeriod('month') },
+  });
 
   /**
    * 高光：把时间轴里花钱最多、弹幕最密的几个瞬间挑出来。
@@ -1066,6 +1194,7 @@ export function createReports({ dlg, toast }) {
         children: [
           chipRow,
           el('span', { class: 'spacer' }),
+          periodBtn,
           exportBtn,
           el('span', { class: 'rpt-note', text: '数字全部由日志重算，与实时统计同源' }),
         ],
@@ -1076,6 +1205,7 @@ export function createReports({ dlg, toast }) {
       listBox,
       timelineBox,
       hlBox,
+      perBox,
       el('div', {
         class: 'rpt-sandbox',
         children: [

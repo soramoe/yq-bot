@@ -144,6 +144,8 @@ export const api = {
   reconcile: () => request('/api/reconcile'),
   /** 战报：要读全量日志重算，超时放宽到 60 秒 */
   reports: ({ days = 0 } = {}) => request(`/api/reports?days=${days}`, { timeout: 60000 }),
+  /** 月报 / 季报：按自然月/季汇总，服务端算好了带回来 */
+  period: (kind = 'month') => request(`/api/period?kind=${kind}`, { timeout: 60000 }),
   /** 时间轴：同样要读全量日志，只重放一个窗口 */
   timeline: ({ from, to, step = 60 }) =>
     request(`/api/timeline?from=${from}&to=${to}&step=${step}`, { timeout: 60000 }),

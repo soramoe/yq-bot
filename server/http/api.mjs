@@ -11,6 +11,7 @@ import { upTo } from '../app.mjs';
 import { reconcile, formatReport } from '../core/reconcile.mjs';
 import { dayKey } from '../core/event-log.mjs';
 import { buildReports, summarizeReports, auditReports, buildDailySeries } from '../core/report.mjs';
+import { periodDelta, periodRange, periodSummary, periodText } from '../core/period.mjs';
 import { buildReportHtml, reportFileName } from '../core/export-report.mjs';
 import { buildTimeline, normalizeStep } from '../core/timeline.mjs';
 import { replay } from '../core/sandbox.mjs';
@@ -131,8 +132,49 @@ export function buildRoutes(app) {
     };
   }
 
-  r.get('/api/reports', async ({ res, url }) => {
+  /**
+   * 月报 / 季报：在页面战报的基础上按自然月/季做加法，再和上一段比。
+   * 与 /api/reports 共用 `reportsBusy`，不另开一条全量读日志的通道。
+   */
+  r.get('/api/period', async ({ res, url }) => {
     if (!app.runner?.log_) {
+      sendError(res, 503, 'not_ready', '房间还没启动，读不到日志');
+      return;
+    }
+    const kind = url.searchParams.get('kind') === 'quarter' ? 'quarter' : 'month';
+    if (reportsBusy) {
+      sendError(res, 429, 'busy', '战报还在算，稍等一下');
+      return;
+    }
+
+    reportsBusy = true;
+    try {
+      const data = await computeReports(0);
+      const range = periodRange(kind);
+      const inside = (r, from, to) => r.startedAt >= from && r.startedAt < to;
+      const curReports = data.reports.filter((r) => inside(r, range.from, range.to));
+      const prevReports = data.reports.filter((r) => inside(r, range.prevFrom, range.prevTo));
+      const cur = periodSummary(curReports);
+      const prev = periodSummary(prevReports);
+      const delta = periodDelta(cur, prev);
+      sendJson(res, {
+        ok: true,
+        kind,
+        label: range.label,
+        from: range.from,
+        to: range.to,
+        cur,
+        prev,
+        delta,
+        text: periodText({ kind, label: range.label, cur, prev, delta }),
+        sessions: curReports.slice(0, 30),
+      });
+    } finally {
+      reportsBusy = false;
+    }
+  });
+
+  r.get('/api/reports', async ({ res, url }) => {    if (!app.runner?.log_) {
       sendError(res, 503, 'not_ready', '房间还没启动，读不到日志');
       return;
     }

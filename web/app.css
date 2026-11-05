@@ -2515,3 +2515,113 @@ dialog#dlg-reports {
     display: none;
   }
 }
+
+/* ── 月报 / 季报 ── */
+
+.per {
+  padding: 8px 2px 4px;
+}
+
+.per-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 12px;
+}
+
+.per-chip {
+  border: 1px solid var(--line);
+  background: transparent;
+  color: var(--dim);
+  border-radius: 999px;
+  padding: 6px 14px;
+  font-size: var(--fs-xs);
+  cursor: pointer;
+}
+
+.per-chip.is-on {
+  color: var(--text);
+  border-color: var(--accent);
+  background: var(--accent-soft, rgba(124, 199, 255, 0.12));
+}
+
+.per-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  margin-bottom: 14px;
+}
+
+.per-cell {
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 10px 12px;
+}
+
+.per-k {
+  color: var(--dim);
+  font-size: var(--fs-xs);
+  margin-bottom: 4px;
+}
+
+.per-v {
+  font-size: 18px;
+  font-weight: 700;
+}
+
+.per-v.accent {
+  color: var(--accent);
+}
+
+.per-delta {
+  border-top: 1px dashed var(--line);
+  border-bottom: 1px dashed var(--line);
+  padding: 8px 0;
+  margin-bottom: 12px;
+}
+
+.per-delta-row {
+  display: grid;
+  grid-template-columns: 80px 90px 1fr;
+  gap: 8px;
+  padding: 4px 0;
+  font-size: var(--fs-xs);
+}
+
+.per-delta-row .k {
+  color: var(--dim);
+}
+
+.per-delta-row .v {
+  font-weight: 600;
+}
+
+.per-delta-row .p {
+  color: var(--dim);
+  font-variant-numeric: tabular-nums;
+}
+
+.per-text {
+  margin: 0;
+  padding: 12px;
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-family: inherit;
+  font-size: var(--fs-sm);
+  line-height: 1.7;
+  color: var(--text);
+}
+
+@media (max-width: 680px) {
+  .per-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .per-delta-row {
+    grid-template-columns: 70px 80px 1fr;
+  }
+}
