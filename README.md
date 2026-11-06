@@ -1,4 +1,4 @@
-﻿# 渔情LiveBot
+# 渔情LiveBot
 
 > **公益项目，请勿挪用收费 · BUG 反馈群：1092065806**
 
@@ -556,18 +556,19 @@ git push origin main --tags
 
 `.github/workflows/release.yml` 会：校验 tag 与 `package.json` 版本一致 →
 `npm ci --omit=dev`（把唯一的依赖 `ws` 一起打进去）→ 打成
-`yuyue3-<version>.tar.gz`（排除 `data/`、`.git/`、`.github/`）→ 生成
-`latest.json` → 创建 Release 并上传更新包和清单 → 下载 Windows 便携 Node
-（版本写在 `scripts/node-version.txt`）→ 用 `scripts/make-dist.mjs` 打
+`yuyue3-<version>.tar.gz`（排除 `data/`、`.git/`、`.github/`、`runtime/`，
+以及和安装包共用那份 `SKIP_RELATIVE`——决策记录、私钥规范、签发工具只给
+开发者，不该跟着更新落到用户机器上）→ 生成 `latest.json` → 创建 Release 并
+上传更新包和清单 → 下载 Windows 便携 Node（版本写在
+`scripts/node-version.txt`）→ 用 `scripts/make-dist.mjs` 打
 `yuqing-bot-<version>.zip`（安装包，同一份文件清单，含 `安装说明.txt` 和
-`runtime\node`）并上传 → 最后同步 R2 镜像。安装 zip 不再需要人工补传，
-更新 tar 与 zip 的文件取舍由同一份 `DIST_ENTRIES` 决定；更新 tar 会排除
-`runtime/`，老用户本来就有 Node，不用每次更新多下 30MB。
+`runtime\node`）并上传 → 最后同步 R2 镜像，**更新包和安装包都传**：
+新用户第一次下那 30MB 也得有个不用翻墙的下载点。
 
 本地想先看安装包内容：
 
 ```bash
-node scripts/make-dist.mjs --out dist\yuqing-bot-1.0.6.zip
+node scripts/make-dist.mjs --out dist\yuqing-bot-1.0.7.zip
 ```
 
 全新安装（还没有 `data/app.json`）会默认把更新源指向上面的 GitHub Release，
@@ -592,7 +593,8 @@ https 静态目录，约定很简单：
 
 ```
 https://<mirror>/latest.json                 ← 清单，和 Release 里那份一样
-https://<mirror>/yuyue3-0.3.0.tar.gz         ← 包文件名跟清单 download 的最后一段一致
+https://<mirror>/yuyue3-0.3.0.tar.gz         ← 更新包，文件名跟清单 download 的最后一段一致
+https://<mirror>/yuqing-bot-0.3.0.zip        ← 安装包，新用户下载用（manifest 里用不到）
 ```
 
 检查更新时先读 `<mirror>/latest.json`，镜像失败才回落原更新源；如果镜像

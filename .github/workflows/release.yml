@@ -44,9 +44,15 @@ jobs:
           OUT="$RUNNER_TEMP/yuyue3-${VERSION}.tar.gz"
           # 逐项列顶层条目，不要 `tar ... .`：后者会写入一条 `./`，
           # 而 0.2.1 及更早版本的解压器会把它当成不安全路径拒绝整包。
+          #
+          # 排除清单和安装 zip 共用一份（make-dist 的 SKIP_RELATIVE）：
+          # 内部文档（决策记录 / 私钥规范）和签发工具本来就只给开发者，
+          # 不该随更新包落到用户机器上。清单为空说明 import 坏了，直接停。
+          EXCLUDES="$(node --input-type=module -e 'import { SKIP_RELATIVE } from "./scripts/make-dist.mjs"; console.log(SKIP_RELATIVE.map((p) => "--exclude=" + p).join(" "))')"
+          test -n "$EXCLUDES" || { echo "排除清单为空，停下来"; exit 1; }
           find . -mindepth 1 -maxdepth 1 -printf '%f\n' \
             | grep -v -E '^(data|\.git|\.github|runtime)$' \
-            | tar -czf "$OUT" -T -
+            | tar -czf "$OUT" $EXCLUDES --exclude='*.pem' --exclude='*.key' -T -
           SHA="$(sha256sum "$OUT" | cut -d' ' -f1)"
           SIZE="$(stat -c%s "$OUT")"
           export VERSION SHA SIZE OUT
@@ -117,7 +123,8 @@ jobs:
         run: |
           bash scripts/ci-sync-mirror.sh \
             latest.json \
-            "$RUNNER_TEMP/yuyue3-${GITHUB_REF_NAME#v}.tar.gz"
+            "$RUNNER_TEMP/yuyue3-${GITHUB_REF_NAME#v}.tar.gz" \
+            "$RUNNER_TEMP/yuqing-bot-${GITHUB_REF_NAME#v}.zip"
 
   # 手动补同步：发版后镜像同步失败，或想重传某个旧版本时用。
   mirror:
@@ -156,6 +163,13 @@ jobs:
             -R "$GITHUB_REPOSITORY" \
             --pattern "yuyue3-${VERSION}.tar.gz" \
             --dir "$RUNNER_TEMP/release"
+          # 安装包（33MB）也一并补到镜像，新用户下载才不用直连 GitHub。
+          # 老版本 Release 里可能没有这个附件，缺了只告警，不阻断补同步。
+          gh release download "${{ steps.tag.outputs.tag }}" \
+            -R "$GITHUB_REPOSITORY" \
+            --pattern "yuqing-bot-*.zip" \
+            --dir "$RUNNER_TEMP/release" \
+            || echo "::warning::Release 里没有安装包 zip，这次只同步更新包"
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
 
       - name: Sync mirror (Cloudflare R2)
@@ -167,4 +181,5 @@ jobs:
         run: |
           bash scripts/ci-sync-mirror.sh \
             "$RUNNER_TEMP/release/latest.json" \
-            "$RUNNER_TEMP/release/yuyue3-${{ steps.assets.outputs.version }}.tar.gz"
+            "$RUNNER_TEMP/release/yuyue3-${{ steps.assets.outputs.version }}.tar.gz" \
+            "$RUNNER_TEMP/release/yuqing-bot-${{ steps.assets.outputs.version }}.zip"

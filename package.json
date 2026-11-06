@@ -1,6 +1,6 @@
 {
   "name": "yuyue-bot-3",
-  "version": "1.0.6",
+  "version": "1.0.7",
   "private": true,
   "license": "SEE LICENSE IN LICENSE",
   "description": "渔情LiveBot · B站直播间机器人（事件溯源内核）",

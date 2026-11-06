@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { createServer } from 'node:http';
-import { mkdirSync, readFileSync, writeFileSync, existsSync, utimesSync } from 'node:fs';
+import { mkdirSync, readFileSync, readdirSync, writeFileSync, existsSync, utimesSync } from 'node:fs';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -153,6 +153,53 @@ test('镜像：可以用本地清单和本地包发布，不需要联网', async
   assert.equal(out.version, '1.0.1');
   assert.equal(readFileSync(join(dir, 'mirror', 'yuyue3-1.0.1.tar.gz')).compare(pkg), 0);
   assert.equal(JSON.parse(readFileSync(join(dir, 'mirror', 'latest.json'), 'utf8')).version, '1.0.1');
+});
+
+test('镜像：安装包跟着更新包一起发，两种产物各自留 N 份', async (t) => {
+  const dir = tmp(t);
+  const pkg = Buffer.from('local-package-bytes');
+  const manifest = {
+    version: '1.0.7',
+    download: 'https://github.com/o/r/releases/download/v1.0.7/yuyue3-1.0.7.tar.gz',
+    sha256: sha256Hex(pkg),
+    size: pkg.length,
+  };
+  const manifestFile = join(dir, 'latest.src.json');
+  const packageFile = join(dir, 'pkg.tar.gz');
+  const zipFile = join(dir, 'yuqing-bot-1.0.7.zip');
+  writeFileSync(manifestFile, JSON.stringify(manifest));
+  writeFileSync(packageFile, pkg);
+  writeFileSync(zipFile, 'install-zip-bytes');
+
+  const mirror = join(dir, 'mirror');
+  mkdirSync(mirror, { recursive: true });
+  // 两类产物各堆 3 份旧的；keep=2 时每类只该剩「新的 + 最新的旧的那个」
+  ['1.0.4', '1.0.5', '1.0.6'].forEach((v, i) => {
+    for (const name of [`yuyue3-${v}.tar.gz`, `yuqing-bot-${v}.zip`]) {
+      const file = join(mirror, name);
+      writeFileSync(file, 'old');
+      const at = new Date(Date.UTC(2020 + i, 0, 1));
+      utimesSync(file, at, at);
+    }
+  });
+
+  await publishToDir({
+    manifestFile,
+    packageFile,
+    dir: mirror,
+    keep: 2,
+    extraFiles: [{ path: zipFile }],
+    log: () => {},
+  });
+
+  assert.equal(readFileSync(join(mirror, 'yuqing-bot-1.0.7.zip'), 'utf8'), 'install-zip-bytes', '安装包要落盘');
+  assert.equal(readFileSync(join(mirror, 'yuyue3-1.0.7.tar.gz')).compare(pkg), 0);
+
+  const zips = readdirSync(mirror).filter((n) => n.endsWith('.zip')).sort();
+  const tars = readdirSync(mirror).filter((n) => n.endsWith('.tar.gz')).sort();
+  assert.deepEqual(zips, ['yuqing-bot-1.0.6.zip', 'yuqing-bot-1.0.7.zip'], '安装包不能把更新包挤掉，反之亦然');
+  assert.deepEqual(tars, ['yuyue3-1.0.6.tar.gz', 'yuyue3-1.0.7.tar.gz']);
+  assert.equal(existsSync(join(mirror, 'yuqing-bot-1.0.4.zip')), false, '最旧的安装包应被清掉');
 });
 
 test('镜像：sha256 对不上时拒绝落盘，不覆盖已有 latest.json', async (t) => {

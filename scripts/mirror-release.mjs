@@ -15,7 +15,7 @@
  */
 import { createHash, createHmac } from 'node:crypto';
 import { mkdirSync, readFileSync, readdirSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
-import { join, resolve } from 'node:path';
+import { basename, join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
 const MAX_PACKAGE_BYTES = 100 * 1024 * 1024;
@@ -224,6 +224,7 @@ export async function publishToDir({
   dir,
   base = '',
   keep = 5,
+  extraFiles = [],
   fetchImpl = globalThis.fetch,
   allowHttp = false,
   log = (m) => console.log(m),
@@ -248,20 +249,33 @@ export async function publishToDir({
   const tmpPkg = join(root, `${pkg.name}.tmp`);
   writeFileSync(tmpPkg, body);
   renameSync(tmpPkg, join(root, pkg.name));
+  // 安装包之类的附加文件：先落盘，清单最后换
+  for (const extra of extraFiles) {
+    if (!extra?.path) continue;
+    const name = extra.name || basename(extra.path);
+    const tmp = join(root, `${name}.tmp`);
+    writeFileSync(tmp, readFileSync(extra.path));
+    renameSync(tmp, join(root, name));
+    log(`       ${name} ✓`);
+  }
   // latest.json 最后换：换的时候包一定已经就位
   const tmpLatest = join(root, 'latest.json.tmp');
   writeFileSync(tmpLatest, raw);
   renameSync(tmpLatest, join(root, 'latest.json'));
 
   log(`[4/4] 清理旧包（保留 ${keep} 个）`);
-  const packs = readdirSync(root)
-    .filter((n) => /^yuyue3-.*\.tar\.gz$/i.test(n))
-    .map((n) => ({ name: n, mtimeMs: statSync(join(root, n)).mtimeMs }));
-  const keepSet = new Set(pickKeep(packs, keep).map((f) => f.name));
-  for (const f of packs) {
-    if (!keepSet.has(f.name)) {
-      rmSync(join(root, f.name), { force: true });
-      log(`       删掉旧包 ${f.name}`);
+  // 两种产物各自留 keep 份：安装包比更新包大得多，混在一起按时间淘汰
+  // 会让「刚发的安装包」把「上一版更新包」挤掉。
+  for (const re of [/^yuyue3-.*\.tar\.gz$/i, /^yuqing-bot-.*\.zip$/i]) {
+    const packs = readdirSync(root)
+      .filter((n) => re.test(n))
+      .map((n) => ({ name: n, mtimeMs: statSync(join(root, n)).mtimeMs }));
+    const keepSet = new Set(pickKeep(packs, keep).map((f) => f.name));
+    for (const f of packs) {
+      if (!keepSet.has(f.name)) {
+        rmSync(join(root, f.name), { force: true });
+        log(`       删掉旧包 ${f.name}`);
+      }
     }
   }
 
@@ -272,6 +286,12 @@ export async function publishToDir({
 }
 
 /** 上传到 S3 兼容存储 */
+/**
+ * @param {object} opts
+ * @param {{path: string, name?: string, type?: string}[]} [opts.extraFiles]
+ *   更新包之外的附加文件（目前是安装 zip）。清单永远最后上传，
+ *   所以附加文件失败也不能抢在清单前面落地 —— 见下面的上传顺序。
+ */
 export async function publishToS3({
   manifestUrl,
   manifestFile = '',
@@ -282,6 +302,7 @@ export async function publishToS3({
   prefix = '',
   accessKey,
   secretKey,
+  extraFiles = [],
   fetchImpl = globalThis.fetch,
   log = (m) => console.log(m),
   allowHttp = false,
@@ -303,10 +324,16 @@ export async function publishToS3({
   const keyOf = (name) => [prefix.replace(/^\/+|\/+$/g, ''), name].filter(Boolean).join('/');
 
   log(`[3/3] 上传 ${bucket}/${keyOf(pkg.name)}`);
-  for (const [name, bytes, type] of [
-    [pkg.name, body, 'application/gzip'],
-    ['latest.json', raw, 'application/json'],
-  ]) {
+  // 顺序要紧：包 → 附加文件 → 清单。清单一旦换掉，指向的所有东西必须已经就位。
+  const uploads = [[pkg.name, body, 'application/gzip']];
+  for (const extra of extraFiles) {
+    if (!extra?.path) continue;
+    const name = extra.name || basename(extra.path);
+    uploads.push([name, readFileSync(extra.path), extra.type || 'application/zip']);
+  }
+  uploads.push(['latest.json', raw, 'application/json']);
+
+  for (const [name, bytes, type] of uploads) {
     const req = signS3Put({
       endpoint,
       bucket,
@@ -345,6 +372,20 @@ function hasFlag(name) {
   return process.argv.slice(2).includes(`--${name}`);
 }
 
+/** 取可重复参数的所有值：--extra-file a.zip --extra-file b.zip */
+function argListOf(name) {
+  const argv = process.argv.slice(2);
+  const out = [];
+  for (let i = 0; i < argv.length; i += 1) {
+    if (argv[i] === `--${name}`) {
+      const v = String(argv[i + 1] ?? '');
+      if (v) out.push(v);
+      i += 1;
+    }
+  }
+  return out;
+}
+
 function defaultManifest() {
   try {
     const cfg = JSON.parse(readFileSync('data/app.json', 'utf8'));
@@ -362,6 +403,7 @@ function usage() {
 选项：
   --manifest <url>        更新清单地址；默认读 data/app.json 的 updateUrl
   --manifest-file <路径>  从本地清单读（CI 里用，优先于 --manifest）
+  --extra-file <路径>     顺带发布的附加文件（安装 zip），可重复；清单永远最后上传
   --package-file <路径>   直接用本地包，不再按清单 download 下载
   --dir <路径>       本地镜像目录（nginx / Caddy 的静态目录）
   --s3 <bucket>      S3 兼容桶名
@@ -391,6 +433,8 @@ async function main() {
   const base = argOf('base');
   const keep = Number(argOf('keep', '5')) || 5;
   const allowHttp = hasFlag('allow-http');
+  // 可以重复：--extra-file a.zip --extra-file b.zip
+  const extraFiles = argListOf('extra-file').map((p) => ({ path: resolve(p) }));
 
   if (!manifestUrl && !manifestFile) {
     console.error('没有清单地址：用 --manifest 或 --manifest-file 指定，或在 data/app.json 里配 updateUrl');
@@ -411,7 +455,7 @@ async function main() {
   }
 
   if (dir) {
-    const r = await publishToDir({ manifestUrl, manifestFile, packageFile, dir, base, keep, allowHttp });
+    const r = await publishToDir({ manifestUrl, manifestFile, packageFile, dir, base, keep, extraFiles, allowHttp });
     if (base) console.log(`\n把维护页「更新镜像」填成：${base.replace(/\/+$/, '')}`);
     else console.log(`\n把 ${r.dir} 交给静态服务器后，镜像地址填那个 https 目录`);
     return;
@@ -424,7 +468,7 @@ async function main() {
     process.exitCode = 2;
     return;
   }
-  await publishToS3({ manifestUrl, manifestFile, packageFile, bucket, endpoint, region, prefix, accessKey, secretKey, allowHttp });
+  await publishToS3({ manifestUrl, manifestFile, packageFile, bucket, endpoint, region, prefix, accessKey, secretKey, extraFiles, allowHttp });
   console.log('\n把维护页「更新镜像」填成桶/前缀对应的 https 地址');
 }
 
