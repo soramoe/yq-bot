@@ -568,7 +568,7 @@ git push origin main --tags
 本地想先看安装包内容：
 
 ```bash
-node scripts/make-dist.mjs --out dist\yuqing-bot-1.0.7.zip
+node scripts/make-dist.mjs --out dist\yuqing-bot-1.0.8.zip
 ```
 
 全新安装（还没有 `data/app.json`）会默认把更新源指向上面的 GitHub Release，
