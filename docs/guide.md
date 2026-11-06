@@ -10,7 +10,7 @@
 
 ## 1. 安装
 
-1. 安装 **Node.js 22 或更新版本**（[nodejs.org](https://nodejs.org/)）。
+1. **不用单独装 Node.js**：安装包已经带了一份 Windows 便携 Node 22（`runtime\node`）。如果 `runtime` 被删掉，`install.bat` 会自动下载；也可以手动运行 `scripts\setup-node.bat`。
 2. 把项目文件夹放在一个固定位置，例如 `E:\渔情`。
 3. 双击 `scripts\install.bat`，它会检查 Node、创建目录、安装唯一的依赖 `ws`。
 

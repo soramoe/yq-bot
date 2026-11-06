@@ -14,6 +14,16 @@ set "OUT=%ROOT%\logs\service.out.log"
 if not exist "logs" md "logs"
 if not exist "data" md "data"
 
+rem Use the portable runtime bundled with the install zip when present.
+if exist "%ROOT%\runtime\node\node.exe" set "PATH=%ROOT%\runtime\node;%PATH%"
+
+where node >nul 2>&1
+if errorlevel 1 (
+  echo [FAIL] Node.js not found. Run scripts\install.bat first.
+  popd
+  exit /b 1
+)
+
 rem Optional proxy for GitHub update checks. Put one URL in scripts\proxy.txt
 rem (for example http://127.0.0.1:12450). Node 24 still needs the env switch
 rem before it will route fetch through HTTP(S)_PROXY.

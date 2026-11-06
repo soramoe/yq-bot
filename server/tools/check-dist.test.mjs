@@ -21,7 +21,7 @@ test('安装包：真实仓库收集到 LICENSE/docs/安装说明/ws，且不带
   const files = collectFiles(ROOT);
   const names = files.map((f) => f.rel);
 
-  for (const need of ['LICENSE', 'docs/licensing.md', '安装说明.txt', 'node_modules/ws/package.json']) {
+  for (const need of ['LICENSE', 'docs/licensing.md', '安装说明.txt', 'node_modules/ws/package.json', 'scripts/setup-node.bat', 'scripts/setup-node.ps1', 'scripts/node-version.txt']) {
     assert.ok(names.includes(need), `安装包缺少 ${need}`);
   }
   for (const bad of names) {

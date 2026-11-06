@@ -2,9 +2,10 @@
 ================================
 
 一、安装
-1. 安装 Node.js 22 或更高版本（https://nodejs.org/）。
+1. 安装包里已经带了 Windows 便携 Node 22（runtime\node），不用另外装。
+   如果 runtime 被删了，install.bat 会自动下载；也可以手动双击 scripts\setup-node.bat。
 2. 把整个文件夹放到一个固定位置，不要放在会同步的网盘目录里。
-3. 双击 scripts\install.bat。包里已经带了 ws，没有网络也能装。
+3. 双击 scripts\install.bat。包里已经带了 Node 和 ws，没有网络也能装。
 4. 双击 启动渔情.bat，浏览器打开 http://127.0.0.1:8900
 5. 打开 http://127.0.0.1:8900/login 扫码登录 B 站，回到页面填房间号。
 

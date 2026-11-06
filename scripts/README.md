@@ -9,8 +9,9 @@
 scripts\install.bat
 ```
 
-会检查 Node（要求 >= 22）、创建 `logs\` 和 `data\`、安装运行时依赖 `ws`，
-然后打印下一步该敲什么。它不会启动服务。
+会优先用 `runtime\node` 里的便携 Node；没有就自动运行 `setup-node.bat` 下载，
+再创建 `logs\` 和 `data\`、安装运行时依赖 `ws`，然后打印下一步该敲什么。
+它不会启动服务。
 
 ## 日常
 
@@ -47,7 +48,9 @@ scripts\uninstall-autostart.bat   删除这两个任务
 ## 文件
 
 ```
-install.bat              检查环境 + 装依赖
+install.bat              检查环境 + 装依赖（没有 Node 时自动下载便携版）
+setup-node.bat           只下载便携 Node 到 runtime\node（校验 sha256）
+node-version.txt         便携 Node 的版本号（发版时打安装包也用这个）
 health.mjs               健康探针（0=在跑，1=没跑，3=端口被别的程序占了）
 launch-hidden.vbs        隐藏窗口启动 node server\main.mjs
 start.bat                启动

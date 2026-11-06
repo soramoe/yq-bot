@@ -14,23 +14,42 @@ echo   YuQing Bilibili Live Assistant - environment setup
 echo   Folder: %ROOT%
 echo ===========================================================
 
+rem Prefer the portable runtime bundled with the install zip.
+if exist "%ROOT%\runtime\node\node.exe" set "PATH=%ROOT%\runtime\node;%PATH%"
+
 where node >nul 2>&1
 if errorlevel 1 (
-  echo [FAIL] Node.js was not found.
-  echo        Install Node.js 22 LTS or newer from https://nodejs.org/
-  echo        Then run this file again.
+  echo [STEP] Node.js was not found. Downloading a portable copy...
+  echo        Source: npmmirror.com, checksum verified.
+  call "%ROOT%\scripts\setup-node.bat"
+  if exist "%ROOT%\runtime\node\node.exe" set "PATH=%ROOT%\runtime\node;%PATH%"
+)
+
+where node >nul 2>&1
+if errorlevel 1 (
+  echo [FAIL] Node.js is still missing.
+  echo        Run scripts\setup-node.bat manually, or install Node.js 22 LTS
+  echo        from https://nodejs.org/ and run this file again.
   start "" "https://nodejs.org/en/download"
   popd
   exit /b 1
 )
 
 for /f %%v in ('node -p "process.versions.node.split('.')[0]"') do set "NODE_MAJOR=%%v"
-echo [OK] Node.js found: v%NODE_MAJOR%
+if %NODE_MAJOR% GEQ 22 goto :NODE_READY
+
+echo [STEP] Node.js %NODE_MAJOR% is too old. Downloading portable Node 22...
+call "%ROOT%\scripts\setup-node.bat" --force
+if exist "%ROOT%\runtime\node\node.exe" set "PATH=%ROOT%\runtime\node;%PATH%"
+for /f %%v in ('node -p "process.versions.node.split('.')[0]"') do set "NODE_MAJOR=%%v"
 if %NODE_MAJOR% LSS 22 (
   echo [FAIL] Node.js 22 or newer is required. Please upgrade first.
   popd
   exit /b 1
 )
+
+:NODE_READY
+echo [OK] Node.js found: v%NODE_MAJOR%
 
 if not exist "logs" md "logs"
 if not exist "data" md "data"

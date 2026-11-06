@@ -45,7 +45,7 @@ jobs:
           # 逐项列顶层条目，不要 `tar ... .`：后者会写入一条 `./`，
           # 而 0.2.1 及更早版本的解压器会把它当成不安全路径拒绝整包。
           find . -mindepth 1 -maxdepth 1 -printf '%f\n' \
-            | grep -v -E '^(data|\.git|\.github)$' \
+            | grep -v -E '^(data|\.git|\.github|runtime)$' \
             | tar -czf "$OUT" -T -
           SHA="$(sha256sum "$OUT" | cut -d' ' -f1)"
           SIZE="$(stat -c%s "$OUT")"
@@ -79,6 +79,21 @@ jobs:
             --generate-notes
 
       # 安装 zip 和更新 tar 走同一份文件清单：tar 给更新器，zip 给人下载。
+      # zip 里额外带一份 Windows 便携 Node，装的人不用先装 Node。
+      # 更新 tar 不含 runtime：老用户本来就有 Node，没必要每次更新多下 30MB。
+      - name: Bundle portable Windows Node
+        run: |
+          VERSION="$(cat scripts/node-version.txt)"
+          NAME="node-v${VERSION}-win-x64"
+          BASE="https://npmmirror.com/mirrors/node/v${VERSION}"
+          curl -fsSL "$BASE/${NAME}.zip" -o "/tmp/${NAME}.zip"
+          curl -fsSL "$BASE/SHASUMS256.txt" -o /tmp/SHASUMS256.txt
+          (cd /tmp && sha256sum -c --ignore-missing SHASUMS256.txt)
+          mkdir -p runtime
+          unzip -q "/tmp/${NAME}.zip" -d /tmp/node
+          cp -a "/tmp/node/${NAME}/." runtime/node/
+          test -f runtime/node/node.exe
+
       - name: Build install zip
         run: |
           VERSION="${GITHUB_REF_NAME#v}"

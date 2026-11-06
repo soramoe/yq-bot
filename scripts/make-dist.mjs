@@ -17,6 +17,7 @@ export const DIST_ENTRIES = Object.freeze([
   'docs/',
   'scripts/',
   'node_modules/ws/',
+  'runtime/',
   'package.json',
   'package-lock.json',
   'README.md',

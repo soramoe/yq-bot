@@ -5,6 +5,10 @@ setlocal EnableExtensions EnableDelayedExpansion
 set "ROOT=%~dp0.."
 for %%I in ("%ROOT%") do set "ROOT=%%~fI"
 pushd "%ROOT%" || exit /b 1
+
+rem Prefer the portable runtime bundled with the install zip.
+if exist "%ROOT%\runtime\node\node.exe" set "PATH=%ROOT%\runtime\node;%PATH%"
+
 set "PAUSE_FLAG=%ROOT%\logs\service.paused"
 set "OUT=%ROOT%\logs\service.out.log"
 
