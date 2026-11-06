@@ -60,7 +60,14 @@ function walk(dir, relDir, out) {
     const rel = `${relDir}/${name}`;
     const st = fs.statSync(abs);
     if (st.isDirectory()) {
-      if (SKIP_DIRS.has(name)) continue;
+      /**
+       * `node_modules` 默认整棵跳过（根目录那份靠 `node_modules/ws/` 单独加回来）。
+       * 但 `runtime/node` 是随包的便携 Node —— 它自带的 `node_modules` 里装着
+       * npm 本体，跳掉之后 `npm.cmd` / `npx.cmd` 指向的 `npm-cli.js` 就不存在了：
+       * 包里的那个 npm 是坏的，用户想用它装个依赖会直接失败。
+       */
+      const portableNodeModules = name === 'node_modules' && relDir.startsWith('runtime/node');
+      if (SKIP_DIRS.has(name) && !portableNodeModules) continue;
       walk(abs, rel, out);
     } else if (st.isFile() && !shouldSkip(name)) {
       out.push({ rel, abs, size: st.size });
