@@ -1,8 +1,12 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { generateKeyPairSync } from 'node:crypto';
+import { generateKeyPairSync, sign, verify } from 'node:crypto';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 
 import { createStudioServer } from './license-studio.mjs';
+import { loadPrivateKey } from './license-issue.mjs';
 import { evaluateLicense } from '../core/license.mjs';
 
 function keypair() {
@@ -99,4 +103,23 @@ test('签发台：授权天数超范围、版本不认识都要说人话', async
     assert.equal(badEdition.status, 400);
     assert.match((await badEdition.json()).error, /personal/);
   });
+});
+
+test('私钥：--key 给的路径必须真的被读到', (t) => {
+  const dir = mkdtempSync(join(tmpdir(), 'yq-key-'));
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  const { privateKey, publicKey } = generateKeyPairSync('ed25519');
+  const pem = join(dir, 'explicit.pem');
+  writeFileSync(pem, privateKey.export({ type: 'pkcs8', format: 'pem' }));
+
+  const loaded = loadPrivateKey({ file: pem, env: {} });
+  assert.equal(loaded.asymmetricKeyType, 'ed25519');
+  // 签一个字节再用这把钥匙对应的公钥验：验不过就说明加载的不是它
+  const sig = sign(null, Buffer.from('x'), loaded);
+  assert.ok(verify(null, Buffer.from('x'), publicKey, sig), '--key 加载到的必须是指定那把私钥');
+});
+
+test('私钥：--key 指向不存在的文件要当场报错，不许静默退回默认位置', () => {
+  const missing = join(tmpdir(), 'yq-key-not-here-9f2a.pem');
+  assert.throws(() => loadPrivateKey({ file: missing, env: {} }), /私钥文件不存在/);
 });

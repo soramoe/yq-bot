@@ -24,7 +24,7 @@ export const TRIAL_DAYS = 7;
  * 私钥在开发者自己手里，不进仓库、不进安装包。
  */
 export const LICENSE_PUBLIC_KEY =
-  'MCowBQYDK2VwAyEAtAc5ugkOoDKB8+yntuXyTSmhrV6ennOFEghQ64/0+t8=';
+  'MCowBQYDK2VwAyEArnv4afncr4A/u8Vy5sTAWCfMEaLF+OmxRVL70yhzlxU=';
 
 /** 参与签名的字段。顺序不重要，canonicalJson 会排序 */
 export const LICENSE_FIELDS = Object.freeze([

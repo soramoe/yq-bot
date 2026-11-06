@@ -55,15 +55,27 @@ export function validateSignRequest(body = {}) {
   return { machine, uid, customer, edition, days, updatesDays, maxRooms, features };
 }
 
+/** 默认位置：开发者本机，`license-keygen.mjs` 写的就是这里 */
+export const DEFAULT_KEY_FILE = join(homedir(), '.yuqing', 'license-private.pem');
+
 export function loadPrivateKey({ pem, file, env = process.env } = {}) {
+  // 显式给的来源必须先于默认位置生效。
+  // 早先这里收下了 `file`（即 `--key`）却从不读它，于是「指了 A 私钥、
+  // 实际拿 ~/.yuqing 里那把 B 私钥签」会静默发生 —— 签出来的文件看着完全正常。
+  if (pem) return createPrivateKey(pem);
+  if (file) {
+    if (!existsSync(file)) throw new Error(`私钥文件不存在：${file}`);
+    return createPrivateKey(readFileSync(file, 'utf8'));
+  }
   const text =
-    pem ||
     env.LICENSE_PRIVATE_KEY ||
     (env.LICENSE_PRIVATE_KEY_FILE ? readFileSync(env.LICENSE_PRIVATE_KEY_FILE, 'utf8') : '') ||
-    (existsSync(join(homedir(), '.yuqing', 'license-private.pem'))
-      ? readFileSync(join(homedir(), '.yuqing', 'license-private.pem'), 'utf8')
-      : '');
-  if (!text) throw new Error('没有找到私钥：设置 LICENSE_PRIVATE_KEY 或 LICENSE_PRIVATE_KEY_FILE');
+    (existsSync(DEFAULT_KEY_FILE) ? readFileSync(DEFAULT_KEY_FILE, 'utf8') : '');
+  if (!text) {
+    throw new Error(
+      `没有找到私钥：用 --key 指定，或设置 LICENSE_PRIVATE_KEY / LICENSE_PRIVATE_KEY_FILE，或放到 ${DEFAULT_KEY_FILE}`,
+    );
+  }
   return createPrivateKey(text);
 }
 
@@ -135,7 +147,7 @@ function parseArgs(argv) {
 async function main() {
   const args = parseArgs(process.argv.slice(2));
   if (!args.machine) {
-    console.error('用法：node server/tools/license-issue.mjs --machine <机器码> [--uid 123] [--days 365] [--out license.json]');
+    console.error('用法：node server/tools/license-issue.mjs --machine <机器码> [--uid 123] [--days 365] [--key 私钥.pem] [--out license.json]');
     process.exit(2);
   }
   const privateKey = loadPrivateKey({ file: args.keyFile });
