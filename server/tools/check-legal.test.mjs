@@ -41,7 +41,8 @@ test('许可：npm 发布清单带 LICENSE 和 docs，package.json 标了许可�
   assert.equal(pkg.license, 'SEE LICENSE IN LICENSE');
   assert.ok(Array.isArray(pkg.files), '需要 files 字段，否则 npm pack 会漏文件');
   assert.ok(pkg.files.includes('LICENSE'));
-  assert.ok(pkg.files.includes('docs/'));
+  assert.ok(pkg.files.includes('docs/licensing.md'));
+  assert.ok(pkg.files.includes('docs/使用手册.md'));
   assert.ok(pkg.files.includes('server/'));
 });
 

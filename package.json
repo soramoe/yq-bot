@@ -8,13 +8,14 @@
     "server/",
     "web/",
     "plugins/",
-    "docs/",
+    "docs/guide.md",
+    "docs/licensing.md",
+    "docs/使用手册.md",
     "scripts/",
     "LICENSE",
     "README.md",
     "安装说明.txt",
-    "启动渔情.bat",
-    "签发授权.bat"
+    "启动渔情.bat"
   ],
   "type": "module",
   "engines": {

@@ -23,7 +23,19 @@ export const DIST_ENTRIES = Object.freeze([
   'LICENSE',
   '安装说明.txt',
   '启动渔情.bat',
-  '签发授权.bat',
+]);
+
+// 只给开发者用的东西，不进用户安装包。
+// 签发工具依赖开发者本机的私钥，用户拿到也用不了，但不该出现在安装目录里。
+export const SKIP_RELATIVE = Object.freeze([
+  'docs/private-key.md',
+  'docs/决策记录.md',
+  'docs/视频脚本-3分钟.md',
+  'server/tools/license-issue.mjs',
+  'server/tools/license-keygen.mjs',
+  'server/tools/license-studio.mjs',
+  'server/tools/license-studio.html',
+  'server/tools/check-license-studio.test.mjs',
 ]);
 
 const SKIP_FILES = new Set(['proxy.txt', '.DS_Store', 'Thumbs.db']);
@@ -70,7 +82,7 @@ export function collectFiles(root = ROOT) {
     }
   }
   out.sort((a, b) => a.rel.localeCompare(b.rel));
-  return out;
+  return out.filter((f) => !SKIP_RELATIVE.includes(f.rel));
 }
 
 const CRC_TABLE = (() => {

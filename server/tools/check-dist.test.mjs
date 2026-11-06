@@ -30,6 +30,17 @@ test('安装包：真实仓库收集到 LICENSE/docs/安装说明/ws，且不带
     assert.ok(!bad.endsWith('.pem') && !bad.endsWith('.key'), `不该带私钥：${bad}`);
     assert.ok(!bad.endsWith('proxy.txt'), `不该带本机代理：${bad}`);
   }
+  for (const devOnly of [
+    '签发授权.bat',
+    'docs/private-key.md',
+    'docs/决策记录.md',
+    'server/tools/license-issue.mjs',
+    'server/tools/license-studio.mjs',
+    'server/tools/license-studio.html',
+    'server/tools/license-keygen.mjs',
+  ]) {
+    assert.ok(!names.includes(devOnly), `开发者专用文件不该进安装包：${devOnly}`);
+  }
 });
 
 test('安装包：自己写的 zip 能读回内容，中文文件名不丢', (t) => {
