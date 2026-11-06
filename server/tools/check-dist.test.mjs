@@ -67,26 +67,29 @@ test('安装包：自己写的 zip 能读回内容，中文文件名不丢', (t)
   assert.equal(lic.data.toString('utf8'), 'license-text\n');
 });
 
-test('安装包：便携 Node 自己的 node_modules 要带上，根目录的仍然跳过', (t) => {
+test('安装包：便携 Node 自己的 node_modules 和 dist 都要带上，且不再按名字跳目录', (t) => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'yq-dist-'));
   t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
 
-  // 模拟 CI 里解出来的 runtime/node：npm 本体装在它自己的 node_modules 里
-  fs.mkdirSync(path.join(dir, 'runtime', 'node', 'node_modules', 'npm', 'bin'), { recursive: true });
+  // 模拟 CI 里解出来的 runtime/node：npm 本体 + npm 自己的依赖树，
+  // 里面既有 node_modules 也有 dist（1.0.8 就是把 dist 跳掉了，npm 起不来）
+  const npmDir = path.join(dir, 'runtime', 'node', 'node_modules', 'npm');
+  fs.mkdirSync(path.join(npmDir, 'bin'), { recursive: true });
   fs.writeFileSync(path.join(dir, 'runtime', 'node', 'node.exe'), 'exe');
-  fs.writeFileSync(path.join(dir, 'runtime', 'node', 'npm.cmd'), '@node "%~dp0node_modules\\npm\\bin\\npm-cli.js"\n');
-  fs.writeFileSync(path.join(dir, 'runtime', 'node', 'node_modules', 'npm', 'bin', 'npm-cli.js'), 'cli');
+  fs.writeFileSync(path.join(npmDir, 'bin', 'npm-cli.js'), 'cli');
+  fs.mkdirSync(path.join(npmDir, 'node_modules', 'walk-up-path', 'dist', 'cjs'), { recursive: true });
+  fs.writeFileSync(path.join(npmDir, 'node_modules', 'walk-up-path', 'dist', 'cjs', 'index.js'), 'cjs');
 
   // 根目录的 node_modules 还是要整棵跳过（靠 DIST_ENTRIES 里的 node_modules/ws 单独加回）
   fs.mkdirSync(path.join(dir, 'node_modules', 'left-pad'), { recursive: true });
   fs.writeFileSync(path.join(dir, 'node_modules', 'left-pad', 'index.js'), 'x');
 
   const names = collectFiles(dir).map((f) => f.rel);
+  assert.ok(names.includes('runtime/node/node_modules/npm/bin/npm-cli.js'), 'npm 入口要进包');
   assert.ok(
-    names.includes('runtime/node/node_modules/npm/bin/npm-cli.js'),
-    '便携 Node 的 npm 本体要进包，否则包里的 npm.cmd 是坏的',
+    names.includes('runtime/node/node_modules/npm/node_modules/walk-up-path/dist/cjs/index.js'),
+    'npm 依赖里的 dist/ 不能按仓库规则跳掉，否则 npm 起不来',
   );
-  assert.ok(names.includes('runtime/node/node.exe'));
   assert.ok(!names.some((n) => n.startsWith('node_modules/left-pad')), '根目录 node_modules 不该被带进来');
 });
 

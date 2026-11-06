@@ -55,21 +55,22 @@ function shouldSkip(name) {
 }
 
 function walk(dir, relDir, out) {
+  /**
+   * `runtime/node` 是一整份官方 Node 发行版，里面有 npm 以及 npm 自己的依赖树。
+   * 那套树里到处是 `dist/` 和嵌套的 `node_modules/` —— 用仓库顶层那套
+   * 「跳过 dist / 跳过 node_modules」的规则去筛，会把 npm 掏空：
+   * 1.0.8 就是这样漏掉了 `npm/node_modules/walk-up-path/dist/cjs/index.js`，
+   * npm 直接起不来。所以进了 runtime/node 之后一律不再按名字跳目录。
+   */
+  const portableNode = relDir === 'runtime/node' || relDir.startsWith('runtime/node/');
   for (const name of fs.readdirSync(dir)) {
     const abs = path.join(dir, name);
     const rel = `${relDir}/${name}`;
     const st = fs.statSync(abs);
     if (st.isDirectory()) {
-      /**
-       * `node_modules` 默认整棵跳过（根目录那份靠 `node_modules/ws/` 单独加回来）。
-       * 但 `runtime/node` 是随包的便携 Node —— 它自带的 `node_modules` 里装着
-       * npm 本体，跳掉之后 `npm.cmd` / `npx.cmd` 指向的 `npm-cli.js` 就不存在了：
-       * 包里的那个 npm 是坏的，用户想用它装个依赖会直接失败。
-       */
-      const portableNodeModules = name === 'node_modules' && relDir.startsWith('runtime/node');
-      if (SKIP_DIRS.has(name) && !portableNodeModules) continue;
+      if (!portableNode && SKIP_DIRS.has(name)) continue;
       walk(abs, rel, out);
-    } else if (st.isFile() && !shouldSkip(name)) {
+    } else if (st.isFile() && (portableNode || !shouldSkip(name))) {
       out.push({ rel, abs, size: st.size });
     }
   }
